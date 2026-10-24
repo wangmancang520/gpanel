@@ -16,8 +16,35 @@ go build -o bin/gpanel ./cmd/gpanel
 | `-addr` | `GPANEL_ADDR` | `127.0.0.1:24444` |
 | `-data` | `GPANEL_DATA` | `data` |
 | `-web-dir` | `GPANEL_WEB_DIR` | 空（使用内嵌前端）；开发时设为 `web/static` 免重编译 |
+| `-java-mirror` | `GPANEL_JAVA_MIRROR` | 空（官方源）；见下文「Java 版本」 |
 
 交叉编译：`CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./cmd/gpanel`
+
+## 部署到 Linux（systemd）
+
+从 CI 的构建产物（Actions → 最新一次运行 → Artifacts）下载对应架构的二进制，或自行交叉编译，然后在服务器上：
+
+```bash
+sudo deploy/install.sh ./gpanel-linux-amd64
+```
+
+脚本会：创建系统用户 `gpanel`，安装 `/usr/local/bin/gpanel`、`/etc/systemd/system/gpanel.service`，首次安装时写入 `/etc/gpanel/gpanel.env` 并打印 `admin` 初始密码。数据目录为 `/var/lib/gpanel`，游戏服务器也以 `gpanel` 用户运行。
+
+- 修改监听地址、Java 镜像：编辑 `/etc/gpanel/gpanel.env` 后 `sudo systemctl restart gpanel`。
+- 升级：用新二进制再次运行 `install.sh`，配置和数据保留。
+- **重启或升级面板会停止正在运行的游戏服务器**（先发停止命令，超时后强制结束），勾选了「自动启动」的实例会随面板恢复。unit 使用 `KillMode=mixed`，保证关机时由面板逐个优雅停止实例，而不是 systemd 同时给所有进程发 SIGTERM。
+- 日志：`sudo journalctl -u gpanel -f`
+
+## 开发与测试
+
+```bash
+go vet ./... && go test ./...
+go build -o bin/gpanel ./cmd/gpanel
+scripts/smoke.sh bin/gpanel                  # 端到端冒烟测试（macOS / Linux）
+SMOKE_JAVA=1 scripts/smoke.sh bin/gpanel     # 额外真实安装并运行一个 Temurin JRE
+```
+
+推送到任意分支都会触发 GitHub Actions（`.github/workflows/ci.yml`），在 Ubuntu 上执行：gofmt / vet / 带竞态检测的单元测试、含真实 Java 安装的冒烟测试、用 `deploy/install.sh` 在真实 systemd 下安装并验证（`scripts/systemd-smoke.sh`），以及 5 个平台的交叉编译（产物保留 7 天）。
 
 ## 目录结构
 
@@ -33,6 +60,9 @@ internal/
   files/             基于 os.Root 的沙箱文件管理
   runtimes/          运行时检测（Java），通过 LaunchHook 注入启动参数
 web/static/          前端（Vue 3 + xterm.js，无构建步骤）
+deploy/              systemd unit、环境变量模板、安装/升级脚本
+scripts/             冒烟测试（smoke.sh、systemd-smoke.sh）
+.github/workflows/   CI
 data/                运行时数据：users.json、instances.json、instances/<id>/、runtimes/java/
 ```
 

@@ -1,0 +1,38 @@
+[Unit]
+Description=GPanel game server panel
+Documentation=https://github.com/wangmancang520/gpanel
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=gpanel
+Group=gpanel
+# Settings such as GPANEL_ADDR and GPANEL_JAVA_MIRROR live here.
+EnvironmentFile=-/etc/gpanel/gpanel.env
+StateDirectory=gpanel
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/gpanel
+ExecStart=/usr/local/bin/gpanel -data /var/lib/gpanel
+
+# Game servers run inside this unit's cgroup. "mixed" sends SIGTERM only to
+# the panel, which then stops every instance gracefully (stop command first).
+# Anything still alive after TimeoutStopSec gets SIGKILL. Keep this above
+# the panel's own 60s shutdown budget.
+KillMode=mixed
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=5
+
+# Game servers (e.g. Minecraft) open many files and sockets.
+LimitNOFILE=65536
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+
+[Install]
+WantedBy=multi-user.target

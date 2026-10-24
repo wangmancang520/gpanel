@@ -1,0 +1,87 @@
+name: CI
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: gofmt / vet / test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "需要 gofmt 的文件:"; echo "$unformatted"; exit 1
+          fi
+      - run: go vet ./...
+      - run: go test -race ./...
+
+  smoke:
+    name: smoke (linux, real Java install)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: CGO_ENABLED=0 go build -o bin/gpanel ./cmd/gpanel
+      - name: smoke test
+        env:
+          SMOKE_JAVA: "1"
+        run: scripts/smoke.sh bin/gpanel
+
+  systemd:
+    name: systemd install (deploy/install.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: build
+        run: CGO_ENABLED=0 go build -o bin/gpanel ./cmd/gpanel
+      - name: install and exercise under systemd
+        run: sudo scripts/systemd-smoke.sh bin/gpanel
+
+  build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { goos: linux, goarch: amd64 }
+          - { goos: linux, goarch: arm64 }
+          - { goos: darwin, goarch: amd64 }
+          - { goos: darwin, goarch: arm64 }
+          - { goos: windows, goarch: amd64, ext: .exe }
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - name: build
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: go build -trimpath -ldflags="-s -w" -o dist/gpanel-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/gpanel
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gpanel-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
+          retention-days: 7
