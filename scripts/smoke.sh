@@ -60,6 +60,7 @@ ID=$(c -X POST $B/api/instances -d "{\"name\":\"smoke\",\"command\":\"bash $HERE
 check "创建实例"              '[ -n "$ID" ]'
 check "启动实例"              'c -X POST $B/api/instances/$ID/start | grep -q "\"state\":\"running\""'
 check "发送命令"              'c -X POST $B/api/instances/$ID/command -d "{\"command\":\"ping\"}" | grep -q running'
+check "概览统计实例资源"      'wait_for 5 "c $B/api/system | grep -q \"\\\"$ID\\\":{\\\"cpu\\\"\""'
 c -X POST $B/api/instances/$ID/stop >/dev/null
 check "优雅停止 (退出码 0)"   'wait_for 5 "status $ID | grep -q \"\\\"state\\\":\\\"stopped\\\".*\\\"exitCode\\\":0\""'
 
@@ -94,6 +95,7 @@ check "符号链接逃逸被拒"      'c "$F/content?path=/escape/hosts" | grep 
 check "不能删除根目录"        'c -X POST $F/delete -d "{\"paths\":[\"/\"]}" | grep -q error'
 
 # --- runtimes
+check "系统概览接口"          'c $B/api/system | grep -q "\"supported\":true"'
 check "运行时接口"            'c $B/api/runtimes | grep -q "^\["'
 if [ "${SMOKE_NETWORK:-1}" != 0 ]; then
   RELS=$(c "$B/api/runtimes/releases?kind=java")

@@ -59,6 +59,7 @@ internal/
   instance/          实例配置、生命周期、崩溃重启、终端 WebSocket
   files/             基于 os.Root 的沙箱文件管理
   runtimes/          运行时检测（Java），通过 LaunchHook 注入启动参数
+  system/            主机配置与负载采样（概览页），按进程组统计实例 CPU / 内存
 web/static/          前端（Vue 3 + xterm.js，无构建步骤）
 deploy/              systemd unit、环境变量模板、安装/升级脚本
 scripts/             冒烟测试（smoke.sh、systemd-smoke.sh）

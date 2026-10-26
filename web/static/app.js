@@ -1,5 +1,6 @@
 import { api, toasts, attempt } from './api.js';
 import { LoginView } from './views/login.js';
+import { Dashboard } from './views/dashboard.js';
 import { InstanceList } from './views/instances.js';
 import { InstanceDetail } from './views/instance.js';
 import { RuntimesView } from './views/runtimes.js';
@@ -7,15 +8,16 @@ import { PasswordDialog } from './views/password.js';
 
 const { createApp, ref, computed, onMounted } = Vue;
 
-// Hash router: #/instances, #/instances/<id>/<tab>, #/runtimes.
+// Hash router: #/dashboard, #/instances, #/instances/<id>/<tab>, #/runtimes.
 // To add a page: add a nav entry and a branch in `view`.
 const nav = [
+  { path: 'dashboard', label: '概览' },
   { path: 'instances', label: '实例' },
   { path: 'runtimes', label: '运行时' },
 ];
 
 const App = {
-  components: { LoginView, InstanceList, InstanceDetail, RuntimesView, PasswordDialog },
+  components: { LoginView, Dashboard, InstanceList, InstanceDetail, RuntimesView, PasswordDialog },
   setup() {
     const user = ref(null);
     const ready = ref(false);
@@ -25,7 +27,7 @@ const App = {
     window.addEventListener('gpanel:unauthorized', () => (user.value = null));
 
     const parts = computed(() => hash.value.replace(/^#\/?/, '').split('/').filter(Boolean));
-    const section = computed(() => parts.value[0] || 'instances');
+    const section = computed(() => parts.value[0] || 'dashboard');
 
     onMounted(async () => {
       try { user.value = (await api('GET', '/api/auth/me')).username; } catch {}
@@ -55,7 +57,8 @@ const App = {
           </div>
         </aside>
         <main class="main">
-          <InstanceDetail v-if="section === 'instances' && parts[1]" :key="parts[1]" :id="parts[1]" :tab="parts[2] || 'terminal'" />
+          <Dashboard v-if="section === 'dashboard'" />
+          <InstanceDetail v-else-if="section === 'instances' && parts[1]" :key="parts[1]" :id="parts[1]" :tab="parts[2] || 'terminal'" />
           <InstanceList v-else-if="section === 'instances'" />
           <RuntimesView v-else-if="section === 'runtimes'" />
         </main>

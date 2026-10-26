@@ -17,6 +17,7 @@ import (
 	"gpanel/internal/httpx"
 	"gpanel/internal/instance"
 	"gpanel/internal/runtimes"
+	"gpanel/internal/system"
 	"gpanel/web"
 )
 
@@ -65,12 +66,24 @@ func main() {
 	}
 	instances.AddLaunchHook(rts.LaunchHook())
 
+	monitor := system.NewMonitor(cfg.DataDir, func() map[string]int {
+		pids := map[string]int{}
+		for _, s := range instances.List() {
+			if s.Pid > 0 {
+				pids[s.ID] = s.Pid
+			}
+		}
+		return pids
+	})
+	go monitor.Run(context.Background())
+
 	// Every feature registers its routes here; add new modules to this list.
 	modules := []httpx.Module{
 		authSvc,
 		instance.NewHandler(instances),
 		files.NewHandler("/api/instances", instances.WorkDir),
 		runtimes.NewHandler(rts),
+		monitor,
 	}
 	mux := http.NewServeMux()
 	for _, m := range modules {
