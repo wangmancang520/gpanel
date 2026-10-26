@@ -16,7 +16,7 @@ import (
 type Config struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
-	WorkDir     string            `json:"workDir"`     // absolute; defaults to <data>/instances/<id>
+	WorkDir     string            `json:"workDir"`     // absolute, user-chosen; empty = <data>/instances/<id> (resolved at runtime so the data dir can move)
 	Command     string            `json:"command"`     // e.g. "{{java}} -Xmx4G -jar server.jar nogui"
 	StopCommand string            `json:"stopCommand"` // written to the console to stop gracefully; empty = SIGTERM
 	StopTimeout int               `json:"stopTimeout"` // seconds before escalating to SIGTERM / SIGKILL
@@ -64,6 +64,7 @@ const (
 // Status is a point-in-time view of an instance for the API.
 type Status struct {
 	Config
+	Dir       string     `json:"dir"` // effective working directory
 	State     State      `json:"state"`
 	Pid       int        `json:"pid,omitempty"`
 	StartedAt *time.Time `json:"startedAt,omitempty"`

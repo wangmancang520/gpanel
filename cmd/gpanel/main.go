@@ -52,6 +52,17 @@ func main() {
 		return names
 	}
 	rts.Scan(context.Background())
+	// Older versions keyed managed runtimes by absolute path; rewrite such
+	// references to the current, location-independent IDs.
+	for _, s := range instances.List() {
+		if rt, ok := rts.Get(s.Runtime); ok && rt.ID != s.Runtime {
+			cfg := s.Config
+			cfg.Runtime = rt.ID
+			if _, err := instances.Update(cfg.ID, cfg); err != nil {
+				log.Printf("迁移实例 %s 的运行时失败: %v", cfg.Name, err)
+			}
+		}
+	}
 	instances.AddLaunchHook(rts.LaunchHook())
 
 	// Every feature registers its routes here; add new modules to this list.

@@ -88,7 +88,7 @@ check "新建目录与上传"        'c -X POST $F/mkdir -d "{\"path\":\"/d\"}" 
 check "压缩与解压"            'c -X POST $F/zip -d "{\"paths\":[\"/d\",\"/a.txt\"],\"dest\":\"/b.zip\"}" >/dev/null; c -X POST $F/unzip -d "{\"path\":\"/b.zip\",\"dest\":\"/out\"}" >/dev/null; [ "$(c "$F/content?path=/out/a.txt")" = hello ]'
 check "下载文件"              '[ "$(c "$F/download?path=/out/a.txt")" = hello ]'
 check "路径越界被拒"          'c "$F/content?path=../../../etc/hosts" | grep -q error'
-WD=$(status "$ID" | jfield workDir)
+WD=$(status "$ID" | jfield dir)
 ln -s /etc "$WD/escape"
 check "符号链接逃逸被拒"      'c "$F/content?path=/escape/hosts" | grep -q error'
 check "不能删除根目录"        'c -X POST $F/delete -d "{\"paths\":[\"/\"]}" | grep -q error'

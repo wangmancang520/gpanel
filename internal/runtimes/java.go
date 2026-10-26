@@ -41,15 +41,23 @@ func (j *Java) Launch(rt Runtime) (map[string]string, map[string]string, []strin
 
 func (j *Java) Detect(ctx context.Context) []Runtime {
 	type cand struct {
-		home    string
-		managed bool
+		home        string
+		managedPath string // relative to ManagedDir; empty for system installs
 	}
 	var cands []cand
 	add := func(managed bool, patterns ...string) {
 		for _, pat := range patterns {
 			matches, _ := filepath.Glob(pat)
 			for _, m := range matches {
-				cands = append(cands, cand{m, managed})
+				c := cand{home: m}
+				if managed {
+					rel, err := filepath.Rel(j.ManagedDir, m)
+					if err != nil {
+						continue
+					}
+					c.managedPath = filepath.ToSlash(rel)
+				}
+				cands = append(cands, c)
 			}
 		}
 	}
@@ -58,7 +66,7 @@ func (j *Java) Detect(ctx context.Context) []Runtime {
 		add(true, filepath.Join(j.ManagedDir, "*"), filepath.Join(j.ManagedDir, "*", "Contents", "Home"))
 	}
 	if h := os.Getenv("JAVA_HOME"); h != "" {
-		cands = append(cands, cand{h, false})
+		cands = append(cands, cand{home: h})
 	}
 	switch runtime.GOOS {
 	case "darwin":
@@ -74,7 +82,7 @@ func (j *Java) Detect(ctx context.Context) []Runtime {
 	}
 	if p, err := exec.LookPath(javaBin()); err == nil {
 		if real, err := filepath.EvalSymlinks(p); err == nil {
-			cands = append(cands, cand{filepath.Dir(filepath.Dir(real)), false})
+			cands = append(cands, cand{home: filepath.Dir(filepath.Dir(real))})
 		}
 	}
 
@@ -86,14 +94,14 @@ func (j *Java) Detect(ctx context.Context) []Runtime {
 			continue
 		}
 		seen[home] = true
-		if rt, ok := j.inspect(ctx, home, c.managed); ok {
+		if rt, ok := j.inspect(ctx, home, c.managedPath); ok {
 			out = append(out, rt)
 		}
 	}
 	return out
 }
 
-func (j *Java) inspect(ctx context.Context, home string, managed bool) (Runtime, bool) {
+func (j *Java) inspect(ctx context.Context, home, managedPath string) (Runtime, bool) {
 	exe := filepath.Join(home, "bin", javaBin())
 	if st, err := os.Stat(exe); err != nil || st.IsDir() {
 		return Runtime{}, false
@@ -114,11 +122,17 @@ func (j *Java) inspect(ctx context.Context, home string, managed bool) (Runtime,
 	if vendor != "" {
 		name += " (" + vendor + ")"
 	}
-	return Runtime{
+	rt := Runtime{
 		ID: runtimeID("java", home), Kind: "java", Name: name,
 		Version: version, Major: major, Vendor: vendor,
-		Home: home, Executable: exe, Managed: managed,
-	}, true
+		Home: home, Executable: exe,
+	}
+	if managedPath != "" {
+		rt.legacyID = rt.ID
+		rt.ID = runtimeID("java", "managed:"+managedPath)
+		rt.Managed, rt.ManagedPath = true, managedPath
+	}
+	return rt, true
 }
 
 // readRelease parses the JDK's "release" file, which avoids spawning java.

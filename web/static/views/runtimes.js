@@ -96,7 +96,10 @@ export const RuntimesView = {
             <tr v-for="r in items" :key="r.id">
               <td class="nowrap">{{ r.name }}</td>
               <td>{{ r.major }}</td>
-              <td><code class="path">{{ r.home }}</code></td>
+              <td>
+                <code v-if="r.managed" class="path" :title="r.home"><span class="muted">runtimes/java/</span>{{ r.managedPath }}</code>
+                <code v-else class="path">{{ r.home }}</code>
+              </td>
               <td class="muted nowrap">{{ r.managed ? '面板管理' : '系统' }}</td>
               <td class="actions"><a v-if="r.managed" href="" class="danger" @click.prevent="uninstall(r)">卸载</a></td>
             </tr>

@@ -5,7 +5,7 @@ export const InstanceForm = {
   props: { initial: Object },
   emits: ['saved', 'cancel'],
   setup(props, { emit }) {
-    const { reactive, ref, onMounted } = Vue;
+    const { reactive, ref, computed, onMounted } = Vue;
     const src = props.initial || {};
     const form = reactive({
       name: src.name || '',
@@ -20,6 +20,10 @@ export const InstanceForm = {
     });
     const runtimes = ref([]);
     onMounted(async () => { runtimes.value = await attempt(() => api('GET', '/api/runtimes')) || []; });
+    // Option text stays short: native dropdowns can't wrap, and a long home
+    // path pushed the list off screen. The full path is shown under the select.
+    const runtimeLabel = (r) => `${r.name} · ${r.managed ? '面板安装' : '系统'}`;
+    const selectedRuntime = computed(() => runtimes.value.find((r) => r.id === form.runtime));
 
     const save = () => attempt(async () => {
       const env = {};
@@ -38,7 +42,7 @@ export const InstanceForm = {
       emit('saved', saved);
     }, '已保存');
 
-    return { form, runtimes, save, isNew: !src.id };
+    return { form, runtimes, runtimeLabel, selectedRuntime, defaultDir: src.dir, save, isNew: !src.id };
   },
   template: `
     <form class="form" @submit.prevent="save">
@@ -50,14 +54,18 @@ export const InstanceForm = {
       <label>运行时
         <select v-model="form.runtime">
           <option value="">系统默认（PATH 中的 java）</option>
-          <option v-for="r in runtimes" :key="r.id" :value="r.id">{{ r.name }} — {{ r.home }}</option>
+          <option v-for="r in runtimes" :key="r.id" :value="r.id">{{ runtimeLabel(r) }}</option>
         </select>
+        <small v-if="selectedRuntime" class="muted path">{{ selectedRuntime.home }}</small>
+        <small v-else-if="form.runtime" class="error">所选运行时已不存在，请重新选择</small>
       </label>
       <div class="grid2">
         <label>停止命令<input v-model="form.stopCommand" class="mono" placeholder="留空则发送 SIGTERM"></label>
         <label>停止超时（秒）<input v-model="form.stopTimeout" type="number" min="1"></label>
       </div>
-      <label>工作目录<input v-model="form.workDir" class="mono" placeholder="留空则使用面板数据目录"></label>
+      <label>工作目录<input v-model="form.workDir" class="mono" placeholder="留空则使用面板数据目录">
+        <small v-if="!form.workDir && defaultDir" class="muted path">当前：{{ defaultDir }}</small>
+      </label>
       <label>环境变量（每行 KEY=VALUE）<textarea v-model="form.envText" class="mono" rows="3"></textarea></label>
       <div class="row">
         <label class="check"><input type="checkbox" v-model="form.autoStart"> 面板启动时自动启动</label>

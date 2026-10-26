@@ -55,7 +55,7 @@ button.link { border: 0; background: none; padding: 0; color: var(--muted); }
 button.link:hover { color: var(--text); }
 
 input, select, textarea {
-  width: 100%; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
+  width: 100%; max-width: 100%; min-width: 0; padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
   background: var(--bg); color: var(--text); font: inherit;
 }
 input:focus, select:focus, textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
@@ -153,7 +153,7 @@ label.check { flex-direction: row; align-items: center; gap: 6px; }
 
 /* runtimes */
 .table a.danger { color: var(--danger); }
-.table code.path { word-break: break-all; }
+.table code.path, small.path { word-break: break-all; }
 .install-btn { margin-left: 8px; }
 .jobs { display: flex; flex-direction: column; gap: 14px; }
 .job { display: flex; flex-direction: column; gap: 6px; }

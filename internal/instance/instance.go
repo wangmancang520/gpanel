@@ -71,7 +71,7 @@ func (i *Instance) setConfig(cfg Config) {
 func (i *Instance) Status() Status {
 	i.mu.Lock()
 	defer i.mu.Unlock()
-	s := Status{Config: i.cfg, State: i.state, ExitCode: i.exitCode, LastError: i.lastErr}
+	s := Status{Config: i.cfg, Dir: i.m.dir(i.cfg), State: i.state, ExitCode: i.exitCode, LastError: i.lastErr}
 	if i.proc != nil {
 		s.Pid = i.proc.Pid()
 		t := i.startedAt

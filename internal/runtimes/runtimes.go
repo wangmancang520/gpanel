@@ -19,7 +19,9 @@ import (
 )
 
 type Runtime struct {
-	ID         string `json:"id"`   // stable: kind + hash of Home
+	// ID is stable: kind + hash of Home, or for managed runtimes of the path
+	// inside the managed dir, so it survives moving the data dir.
+	ID         string `json:"id"`
 	Kind       string `json:"kind"` // "java", ...
 	Name       string `json:"name"` // display name
 	Version    string `json:"version"`
@@ -28,6 +30,12 @@ type Runtime struct {
 	Home       string `json:"home"`
 	Executable string `json:"executable"`
 	Managed    bool   `json:"managed"` // lives in the panel's own runtimes dir
+	// ManagedPath is Home relative to the managed dir (managed runtimes only).
+	ManagedPath string `json:"managedPath,omitempty"`
+
+	// legacyID is the ID older versions derived from the absolute Home; Get
+	// still accepts it so existing instance configs can be migrated.
+	legacyID string
 }
 
 // Provider detects runtimes of one kind and describes how to launch with them.
@@ -120,11 +128,20 @@ func (r *Registry) List(kind string) []Runtime {
 	return out
 }
 
+// Get looks a runtime up by ID, also accepting legacy IDs; compare the
+// returned Runtime.ID with id to detect a reference that needs migrating.
 func (r *Registry) Get(id string) (Runtime, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	rt, ok := r.items[id]
-	return rt, ok
+	if rt, ok := r.items[id]; ok {
+		return rt, true
+	}
+	for _, rt := range r.items {
+		if rt.legacyID != "" && rt.legacyID == id {
+			return rt, true
+		}
+	}
+	return Runtime{}, false
 }
 
 func (r *Registry) provider(kind string) Provider {
@@ -167,7 +184,9 @@ func (r *Registry) LaunchHook() instance.LaunchHook {
 	}
 }
 
-func runtimeID(kind, home string) string {
-	sum := sha1.Sum([]byte(home))
+// runtimeID hashes key: the absolute home for system runtimes, or
+// "managed:" + the slash-separated path inside the managed dir.
+func runtimeID(kind, key string) string {
+	sum := sha1.Sum([]byte(key))
 	return kind + "-" + hex.EncodeToString(sum[:4])
 }

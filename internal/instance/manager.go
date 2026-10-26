@@ -38,9 +38,31 @@ func NewManager(dataDir string, bus *events.Bus) (*Manager, error) {
 	}
 	m := &Manager{baseDir: filepath.Join(dataDir, "instances"), store: st, bus: bus, items: map[string]*Instance{}}
 	for _, cfg := range st.List() {
+		if isLegacyDefaultDir(cfg) {
+			cfg.WorkDir = ""
+			if err := st.Put(cfg.ID, cfg); err != nil {
+				return nil, err
+			}
+		}
 		m.items[cfg.ID] = newInstance(m, cfg)
 	}
 	return m, nil
+}
+
+// isLegacyDefaultDir reports whether cfg stores the default work dir as an
+// absolute path, as older versions did. Such paths break when the data dir
+// moves; IDs are random, so "<anything>/instances/<id>" is never user-chosen.
+func isLegacyDefaultDir(cfg Config) bool {
+	return cfg.WorkDir != "" && filepath.Base(cfg.WorkDir) == cfg.ID &&
+		filepath.Base(filepath.Dir(cfg.WorkDir)) == "instances"
+}
+
+// dir returns the effective working directory for cfg.
+func (m *Manager) dir(cfg Config) string {
+	if cfg.WorkDir == "" {
+		return filepath.Join(m.baseDir, cfg.ID)
+	}
+	return cfg.WorkDir
 }
 
 // AddLaunchHook registers a hook run (in registration order) before every start.
@@ -51,7 +73,8 @@ func (m *Manager) AddLaunchHook(h LaunchHook) {
 }
 
 func (m *Manager) launch(cfg Config, cols, rows uint16) (pty.Process, error) {
-	spec := &LaunchSpec{Vars: map[string]string{"workdir": cfg.WorkDir}, Env: map[string]string{}}
+	dir := m.dir(cfg)
+	spec := &LaunchSpec{Vars: map[string]string{"workdir": dir}, Env: map[string]string{}}
 	m.mu.RLock()
 	hooks := append([]LaunchHook(nil), m.hooks...)
 	m.mu.RUnlock()
@@ -64,10 +87,10 @@ func (m *Manager) launch(cfg Config, cols, rows uint16) (pty.Process, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.WorkDir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	return pty.Start(pty.Spec{Path: argv[0], Args: argv[1:], Dir: cfg.WorkDir, Env: env, Cols: cols, Rows: rows})
+	return pty.Start(pty.Spec{Path: argv[0], Args: argv[1:], Dir: dir, Env: env, Cols: cols, Rows: rows})
 }
 
 func (m *Manager) Get(id string) (*Instance, error) {
@@ -101,7 +124,7 @@ func (m *Manager) WorkDir(id string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return inst.Config().WorkDir, nil
+	return m.dir(inst.Config()), nil
 }
 
 func (m *Manager) Create(cfg Config) (Config, error) {
@@ -113,7 +136,7 @@ func (m *Manager) Create(cfg Config) (Config, error) {
 	if err := m.resolveWorkDir(&cfg); err != nil {
 		return Config{}, err
 	}
-	if err := os.MkdirAll(cfg.WorkDir, 0o755); err != nil {
+	if err := os.MkdirAll(m.dir(cfg), 0o755); err != nil {
 		return Config{}, err
 	}
 	if err := m.store.Put(cfg.ID, cfg); err != nil {
@@ -168,8 +191,8 @@ func (m *Manager) Delete(id string, removeFiles bool) error {
 	m.mu.Lock()
 	delete(m.items, id)
 	m.mu.Unlock()
-	if removeFiles && filepath.Dir(cfg.WorkDir) == m.baseDir {
-		if err := os.RemoveAll(cfg.WorkDir); err != nil {
+	if removeFiles && cfg.WorkDir == "" {
+		if err := os.RemoveAll(m.dir(cfg)); err != nil {
 			log.Printf("删除实例目录失败: %v", err)
 		}
 	}
@@ -180,13 +203,15 @@ func (m *Manager) Delete(id string, removeFiles bool) error {
 func (m *Manager) resolveWorkDir(cfg *Config) error {
 	cfg.WorkDir = strings.TrimSpace(cfg.WorkDir)
 	if cfg.WorkDir == "" {
-		cfg.WorkDir = filepath.Join(m.baseDir, cfg.ID)
 		return nil
 	}
 	if !filepath.IsAbs(cfg.WorkDir) {
 		return errors.New("工作目录必须是绝对路径")
 	}
 	cfg.WorkDir = filepath.Clean(cfg.WorkDir)
+	if cfg.WorkDir == filepath.Join(m.baseDir, cfg.ID) {
+		cfg.WorkDir = "" // the default; keep it relative to the data dir
+	}
 	return nil
 }
 
