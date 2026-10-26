@@ -106,39 +106,39 @@ export const Dashboard = {
       <p v-if="!sys.supported" class="card muted">当前系统（{{ sys.host.os }}）暂不支持负载监控，仅显示基本信息。</p>
 
       <div class="tiles">
-        <section class="card tile" v-if="sys.supported">
-          <div class="tile-label">CPU</div>
+        <section class="card tile rise" style="--i: 0" v-if="sys.supported">
+          <div class="tile-label"><Icon name="cpu" />CPU</div>
           <div class="tile-value">{{ fmtPct(sys.load.cpu) }}</div>
           <div class="muted small">负载 {{ sys.load.load1.toFixed(2) }} / {{ sys.load.load5.toFixed(2) }} / {{ sys.load.load15.toFixed(2) }}</div>
           <Sparkline :points="cpuPoints" :max="100" :format="fmtPct" label="最近 3 分钟 CPU 使用率" />
         </section>
-        <section class="card tile" v-if="sys.supported">
-          <div class="tile-label">内存</div>
+        <section class="card tile rise" style="--i: 1" v-if="sys.supported">
+          <div class="tile-label"><Icon name="memory" />内存</div>
           <div class="tile-value">{{ fmtPct(pct(sys.load.memUsed, sys.load.memTotal)) }}</div>
           <div class="muted small">{{ formatSize(sys.load.memUsed) }} / {{ formatSize(sys.load.memTotal) }}
             <template v-if="sys.load.swapTotal"> · 交换 {{ formatSize(sys.load.swapUsed) }}</template>
           </div>
           <Sparkline :points="memPoints" :max="sys.load.memTotal" :format="formatSize" label="最近 3 分钟内存占用" />
         </section>
-        <section class="card tile" v-if="sys.load.diskTotal">
-          <div class="tile-label">磁盘 <span class="muted small">数据目录所在分区</span></div>
+        <section class="card tile rise" style="--i: 2" v-if="sys.load.diskTotal">
+          <div class="tile-label"><Icon name="disk" />磁盘 <span class="muted small">数据目录所在分区</span></div>
           <div class="tile-value">{{ fmtPct(pct(sys.load.diskUsed, sys.load.diskTotal)) }}</div>
           <div class="muted small">已用 {{ formatSize(sys.load.diskUsed) }} / {{ formatSize(sys.load.diskTotal) }}</div>
           <Meter :value="pct(sys.load.diskUsed, sys.load.diskTotal)" />
         </section>
-        <section class="card tile">
-          <div class="tile-label">实例</div>
+        <section class="card tile rise" style="--i: 3">
+          <div class="tile-label"><Icon name="server" />实例</div>
           <div class="tile-value">{{ running.length }} <span class="tile-unit muted">/ {{ instances.length }} 运行中</span></div>
           <div class="small" :class="crashed.length ? 'error' : 'muted'">
             {{ crashed.length ? crashed.length + ' 个已崩溃' : '没有崩溃的实例' }}
           </div>
-          <a href="#/instances" class="small">管理实例 →</a>
+          <a href="#/instances" class="small row" style="gap: 4px; margin-top: auto">管理实例<Icon name="arrow" :size="14" /></a>
         </section>
       </div>
 
-      <section class="card">
+      <section class="card rise" style="--i: 4">
         <h2>运行中的实例</h2>
-        <p v-if="!running.length" class="empty">没有正在运行的实例。<a href="#/instances">去启动一个</a></p>
+        <div v-if="!running.length" class="empty"><Icon name="server" :size="32" /><p>没有正在运行的实例。<a href="#/instances">去启动一个</a></p></div>
         <div v-else class="table-scroll"><table class="table">
           <thead><tr><th>名称</th><th>状态</th><th>PID</th><th>运行时长</th><th class="num">CPU</th><th class="num">内存</th><th></th></tr></thead>
           <tbody>
@@ -152,15 +152,15 @@ export const Dashboard = {
                 <span v-if="usage(it.id)?.procs > 1" class="muted small" :title="usage(it.id).procs + ' 个进程'">×{{ usage(it.id).procs }}</span>
               </td>
               <td class="actions">
-                <a :href="'#/instances/' + it.id + '/terminal'">控制台</a>
-                <a href="" v-if="it.state === 'running'" @click.prevent="stop(it)">停止</a>
+                <a :href="'#/instances/' + it.id + '/terminal'"><Icon name="terminal" :size="14" />控制台</a>
+                <a href="" v-if="it.state === 'running'" @click.prevent="stop(it)"><Icon name="stop" :size="14" />停止</a>
               </td>
             </tr>
           </tbody>
         </table></div>
       </section>
 
-      <section class="card">
+      <section class="card rise" style="--i: 5">
         <h2>系统信息</h2>
         <dl class="facts">
           <dt>主机名</dt><dd>{{ sys.host.hostname || '—' }}</dd>
@@ -173,6 +173,11 @@ export const Dashboard = {
           <dt>数据目录</dt><dd><code class="path">{{ sys.host.dataDir }}</code></dd>
         </dl>
       </section>
+    </div>
+    <div class="page" v-else aria-busy="true">
+      <header class="page-head"><h1>概览</h1></header>
+      <div class="tiles"><div v-for="i in 4" :key="i" class="skeleton skeleton-tile"></div></div>
+      <div class="skeleton" style="height: 160px"></div>
     </div>
   `,
 };

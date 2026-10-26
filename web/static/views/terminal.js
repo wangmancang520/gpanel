@@ -71,11 +71,11 @@ export const TerminalPane = {
   },
   template: `
     <div class="terminal-wrap">
-      <div ref="el" class="terminal"></div>
+      <div ref="el" class="term-host"></div>
       <form class="command-bar" @submit.prevent="sendCommand">
-        <span class="dot" :class="{ on: connected }" :title="connected ? '已连接' : '连接中…'"></span>
+        <span class="conn"><span class="dot" :class="{ on: connected }"></span>{{ connected ? '已连接' : '连接中…' }}</span>
         <input v-model="command" class="mono" placeholder="输入命令后回车发送">
-        <button>发送</button>
+        <button class="primary" :disabled="!connected || !command"><Icon name="send" />发送</button>
       </form>
     </div>
   `,

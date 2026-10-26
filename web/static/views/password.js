@@ -13,7 +13,7 @@ export const PasswordDialog = {
     return { oldPassword, newPassword, submit };
   },
   template: `
-    <div class="modal-backdrop" @click.self="$emit('close')">
+    <div class="modal-backdrop" @click.self="$emit('close')" @keydown.esc="$emit('close')">
       <form class="card modal" @submit.prevent="submit">
         <h2>修改密码</h2>
         <label>原密码<input v-model="oldPassword" type="password" required></label>

@@ -5,9 +5,9 @@ import { InstanceForm } from './instance-form.js';
 
 // Instance detail page. Add a tab: one entry in `tabs` + one v-if branch.
 const tabs = [
-  { key: 'terminal', label: '终端' },
-  { key: 'files', label: '文件' },
-  { key: 'settings', label: '设置' },
+  { key: 'terminal', label: '终端', icon: 'terminal' },
+  { key: 'files', label: '文件', icon: 'folder' },
+  { key: 'settings', label: '设置', icon: 'sliders' },
 ];
 
 export const InstanceDetail = {
@@ -43,22 +43,25 @@ export const InstanceDetail = {
     <div class="page detail" v-if="inst">
       <header class="page-head">
         <div class="row">
-          <a href="#/instances" class="muted">实例</a><span class="muted">/</span>
+          <a href="#/instances" class="crumb-link">实例</a><span class="muted">/</span>
           <h1>{{ inst.name }}</h1>
           <span class="badge" :class="inst.state">{{ stateLabels[inst.state] }}</span>
           <span v-if="inst.pid" class="muted small">PID {{ inst.pid }}</span>
         </div>
         <div class="row">
-          <button v-if="!running()" class="primary" @click="act('start')">启动</button>
-          <button v-if="running()" @click="act('stop')">停止</button>
-          <button @click="act('restart')">重启</button>
-          <button v-if="running()" class="danger" @click="act('kill')">强制结束</button>
+          <button v-if="!running()" class="primary" @click="act('start')"><Icon name="play" />启动</button>
+          <button v-if="running()" @click="act('stop')" :disabled="inst.state === 'stopping'"><Icon name="stop" />停止</button>
+          <button @click="act('restart')"><Icon name="restart" />重启</button>
+          <button v-if="running()" class="danger" @click="act('kill')"><Icon name="power" />强制结束</button>
         </div>
       </header>
-      <p v-if="inst.lastError" class="error">{{ inst.lastError }}</p>
+      <p v-if="inst.lastError" class="error row"><Icon name="alert" />{{ inst.lastError }}</p>
       <nav class="tabs">
-        <a v-for="t in tabs" :key="t.key" :href="'#/instances/' + id + '/' + t.key" :class="{ active: tab === t.key }">{{ t.label }}</a>
+        <a v-for="t in tabs" :key="t.key" :href="'#/instances/' + id + '/' + t.key" :class="{ active: tab === t.key }">
+          <Icon :name="t.icon" />{{ t.label }}
+        </a>
       </nav>
+      <Transition name="page" mode="out-in">
       <TerminalPane v-if="tab === 'terminal'" :id="id" @status="onStatus" />
       <FileManager v-else-if="tab === 'files'" :id="id" />
       <div v-else-if="tab === 'settings'" class="card">
@@ -66,9 +69,10 @@ export const InstanceDetail = {
         <hr>
         <div class="row">
           <label class="check"><input type="checkbox" v-model="deleteFiles"> 同时删除实例目录（仅限面板默认目录）</label>
-          <button class="danger" :disabled="running()" @click="remove">删除实例</button>
+          <button class="danger" :disabled="running()" @click="remove"><Icon name="trash" />删除实例</button>
         </div>
       </div>
+      </Transition>
     </div>
   `,
 };

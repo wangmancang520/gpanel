@@ -95,45 +95,50 @@ export const FileManager = {
     <div class="card files">
       <div class="files-toolbar">
         <div class="crumbs">
+          <Icon name="folder" class="muted" />
           <template v-for="(c, i) in crumbs" :key="c.path">
             <span v-if="i" class="muted">/</span>
             <a href="" @click.prevent="load(c.path)">{{ c.name }}</a>
           </template>
         </div>
         <div class="row">
-          <button @click="newFile">新建文件</button>
-          <button @click="mkdir">新建文件夹</button>
-          <button @click="fileInput.click()" :disabled="uploading">{{ uploading ? '上传中…' : '上传' }}</button>
+          <button @click="newFile"><Icon name="file-plus" />新建文件</button>
+          <button @click="mkdir"><Icon name="folder-plus" />新建文件夹</button>
+          <button @click="fileInput.click()" :disabled="uploading">
+            <Icon :name="uploading ? 'refresh' : 'upload'" :class="{ spin: uploading }" />{{ uploading ? '上传中…' : '上传' }}
+          </button>
           <input ref="fileInput" type="file" multiple hidden @change="upload">
-          <button :disabled="!selected.size" @click="zip">压缩</button>
-          <button class="danger" :disabled="!selected.size" @click="remove">删除</button>
+          <button :disabled="!selected.size" @click="zip"><Icon name="archive" />压缩</button>
+          <button class="danger" :disabled="!selected.size" @click="remove"><Icon name="trash" />删除<span v-if="selected.size">（{{ selected.size }}）</span></button>
         </div>
       </div>
-      <table class="table">
+      <div class="table-scroll"><table class="table">
         <thead><tr><th class="w-check"></th><th>名称</th><th>大小</th><th>修改时间</th><th></th></tr></thead>
         <tbody>
-          <tr v-if="!entries.length"><td colspan="5" class="empty">空目录</td></tr>
-          <tr v-for="e in entries" :key="e.name">
-            <td><input type="checkbox" :checked="selected.has(e.name)" @change="toggle(e.name)"></td>
-            <td><a href="" @click.prevent="open(e)" :class="{ dir: e.isDir }">{{ e.isDir ? '📁 ' : '' }}{{ e.name }}</a></td>
+          <tr v-if="!entries.length"><td colspan="5" class="empty"><Icon name="folder" :size="32" />空目录</td></tr>
+          <tr v-for="e in entries" :key="e.name" :class="{ selected: selected.has(e.name) }">
+            <td><input type="checkbox" :checked="selected.has(e.name)" @change="toggle(e.name)" :aria-label="'选择 ' + e.name"></td>
+            <td><a href="" @click.prevent="open(e)" class="entry" :class="{ dir: e.isDir }"><Icon :name="e.isDir ? 'folder' : 'file'" />{{ e.name }}</a></td>
             <td class="muted">{{ e.isDir ? '' : formatSize(e.size) }}</td>
             <td class="muted">{{ fmtTime(e.modTime) }}</td>
             <td class="actions">
-              <a v-if="!e.isDir" :href="downloadUrl(e)">下载</a>
-              <a v-if="e.name.toLowerCase().endsWith('.zip')" href="" @click.prevent="unzip(e)">解压</a>
-              <a href="" @click.prevent="rename(e)">重命名</a>
+              <a v-if="!e.isDir" :href="downloadUrl(e)"><Icon name="download" :size="14" />下载</a>
+              <a v-if="e.name.toLowerCase().endsWith('.zip')" href="" @click.prevent="unzip(e)"><Icon name="archive" :size="14" />解压</a>
+              <a href="" @click.prevent="rename(e)"><Icon name="edit" :size="14" />重命名</a>
             </td>
           </tr>
         </tbody>
-      </table>
-      <div v-if="editor" class="modal-backdrop">
-        <div class="card modal editor">
-          <div class="row between"><code>{{ editor.path }}</code>
-            <div class="row"><button @click="editor = null">取消</button><button class="primary" @click="saveEditor">保存</button></div>
+      </table></div>
+      <Transition name="modal">
+        <div v-if="editor" class="modal-backdrop">
+          <div class="card modal editor">
+            <div class="row between"><span class="row"><Icon name="file" class="muted" /><code>{{ editor.path }}</code></span>
+              <div class="row"><button @click="editor = null">取消</button><button class="primary" @click="saveEditor"><Icon name="check" />保存</button></div>
+            </div>
+            <textarea v-model="editor.content" class="mono" spellcheck="false"></textarea>
           </div>
-          <textarea v-model="editor.content" class="mono" spellcheck="false"></textarea>
         </div>
-      </div>
+      </Transition>
     </div>
   `,
 };

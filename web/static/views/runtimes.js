@@ -84,27 +84,27 @@ export const RuntimesView = {
     <div class="page">
       <header class="page-head">
         <h1>运行时</h1>
-        <button @click="scan" :disabled="scanning">{{ scanning ? '扫描中…' : '重新扫描' }}</button>
+        <button @click="scan" :disabled="scanning"><Icon name="refresh" :class="{ spin: scanning }" />{{ scanning ? '扫描中…' : '重新扫描' }}</button>
       </header>
 
       <section class="card">
         <h2>已安装</h2>
-        <table class="table">
+        <div class="table-scroll"><table class="table">
           <thead><tr><th>名称</th><th>主版本</th><th>路径</th><th>来源</th><th></th></tr></thead>
           <tbody>
             <tr v-if="!items.length"><td colspan="5" class="empty">未检测到运行时，可在下方在线安装</td></tr>
             <tr v-for="r in items" :key="r.id">
-              <td class="nowrap">{{ r.name }}</td>
+              <td class="nowrap"><span class="entry"><Icon name="layers" class="muted" />{{ r.name }}</span></td>
               <td>{{ r.major }}</td>
               <td>
                 <code v-if="r.managed" class="path" :title="r.home"><span class="muted">runtimes/java/</span>{{ r.managedPath }}</code>
                 <code v-else class="path">{{ r.home }}</code>
               </td>
               <td class="muted nowrap">{{ r.managed ? '面板管理' : '系统' }}</td>
-              <td class="actions"><a v-if="r.managed" href="" class="danger" @click.prevent="uninstall(r)">卸载</a></td>
+              <td class="actions"><a v-if="r.managed" href="" class="danger" @click.prevent="uninstall(r)"><Icon name="trash" :size="14" />卸载</a></td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </section>
 
       <section v-if="jobs.length" class="card">
@@ -132,30 +132,30 @@ export const RuntimesView = {
           <h2>在线安装 <span class="muted small">Eclipse Temurin（Adoptium）</span></h2>
           <div class="row">
             <label class="check"><input type="checkbox" v-model="showAll"> 显示非 LTS 版本</label>
-            <button @click="loadReleases" :disabled="loadingReleases">刷新</button>
+            <button @click="loadReleases" :disabled="loadingReleases"><Icon name="refresh" :class="{ spin: loadingReleases }" />刷新</button>
           </div>
         </div>
         <p class="muted small">JRE 体积更小，足够运行游戏服务器；需要编译工具时选 JDK。Minecraft 1.20.5+ 需要 Java 21，1.17–1.20.4 用 Java 17，更早版本用 Java 8。下载后会校验 SHA-256。</p>
         <p v-if="releasesError" class="error">获取版本列表失败：{{ releasesError }}</p>
         <p v-else-if="loadingReleases && !releases.length" class="empty">正在获取版本列表…</p>
-        <table v-else class="table">
+        <div v-else class="table-scroll"><table class="table">
           <thead><tr><th>版本</th><th>最新构建</th><th></th></tr></thead>
           <tbody>
             <tr v-for="g in groups" :key="g.major">
-              <td><strong>Java {{ g.major }}</strong> <span v-if="g.lts" class="badge running">LTS</span></td>
+              <td><strong>Java {{ g.major }}</strong> <span v-if="g.lts" class="badge lts no-dot">LTS</span></td>
               <td class="muted">{{ g.version }}</td>
               <td class="actions">
                 <template v-for="r in g.items" :key="r.id">
-                  <span v-if="r.installed" class="muted install-btn">{{ r.imageType.toUpperCase() }} 已安装</span>
+                  <span v-if="r.installed" class="muted install-btn"><Icon name="check" />{{ r.imageType.toUpperCase() }} 已安装</span>
                   <button v-else class="install-btn" :disabled="installing(r)" @click="install(r)">
-                    {{ installing(r) ? '安装中…' : '安装 ' + r.imageType.toUpperCase() }}
+                    <Icon :name="installing(r) ? 'refresh' : 'download'" :class="{ spin: installing(r) }" />{{ installing(r) ? '安装中…' : '安装 ' + r.imageType.toUpperCase() }}
                     <span class="muted small">{{ formatSize(r.size) }}</span>
                   </button>
                 </template>
               </td>
             </tr>
           </tbody>
-        </table>
+        </table></div>
       </section>
     </div>
   `,
