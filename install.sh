@@ -120,6 +120,9 @@ detect_arch() {
 installed() { [ -x "$BIN" ] && [ -f "$UNIT" ]; }
 current_version() { "$BIN" -version 2>/dev/null || echo "未知"; }
 running() { systemctl is-active --quiet "$SVC"; }
+# systemd refuses a unit started more than 5 times in 10s (several updates or
+# rollbacks in a row, or a crash loop); an explicit start clears that first.
+svc_start() { systemctl reset-failed "$SVC" >/dev/null 2>&1 || true; systemctl "$1" "$SVC"; }
 
 # ---------------------------------------------------------------- config files
 
@@ -367,7 +370,8 @@ cmd_install() {
   ok "已安装 $(current_version) 到 $BIN"
 
   step "启动服务"
-  systemctl enable --now "$SVC" >/dev/null 2>&1
+  systemctl enable "$SVC" >/dev/null 2>&1
+  svc_start start
   health || { journalctl -u "$SVC" --no-pager -n 20 >&2; die "面板没有正常启动，以上是最近的日志"; }
   ok "服务已启动"
   [ "$bind" = 0.0.0.0 ] && open_firewall "$port"
@@ -426,7 +430,7 @@ cmd_update() {
   step "替换程序并重启"
   install -m 755 "$tmp/gpanel" "$BIN.new" && mv -f "$BIN.new" "$BIN"
   write_unit
-  systemctl restart "$SVC"
+  svc_start restart
   if health; then
     install -m 755 "$tmp/gpanel.cur" "$LIB/gpanel.prev"
     install -m 644 "$tmp/gpanel.service.cur" "$LIB/gpanel.service.prev"
@@ -460,7 +464,7 @@ restore_from() {
   install -m 755 "$1" "$BIN.new" && mv -f "$BIN.new" "$BIN"
   if [ -f "$2" ]; then install -m 644 "$2" "$UNIT"; fi
   systemctl daemon-reload
-  systemctl restart "$SVC"
+  svc_start restart
 }
 
 cmd_rollback() {
@@ -550,7 +554,7 @@ cmd_service() { # start|stop|restart
   need_root
   installed || die "GPanel 还没有安装"
   case "$1" in
-    start) systemctl start "$SVC" && health && ok "已启动" || die "启动失败，请查看日志" ;;
+    start) svc_start start && health && ok "已启动" || die "启动失败，请查看日志" ;;
     stop)
       warn "停止面板会同时停止所有正在运行的游戏服务器。"
       confirm "确定停止？" n || return 0
@@ -559,7 +563,7 @@ cmd_service() { # start|stop|restart
     restart)
       restart_notice
       confirm "确定重启？" y || return 0
-      systemctl restart "$SVC" && health && ok "已重启" || die "重启后面板没有正常运行，请查看日志"
+      svc_start restart && health && ok "已重启" || die "重启后面板没有正常运行，请查看日志"
       ;;
   esac
 }
@@ -569,7 +573,7 @@ apply_env_change() {
   if running; then
     restart_notice
     if confirm "现在重启面板使配置生效？" y; then
-      systemctl restart "$SVC"
+      svc_start restart
       health && ok "已重启" || err "重启后面板没有正常运行，请查看日志"
     else
       info "稍后重启面板后生效"
