@@ -1,0 +1,44 @@
+name: Verify release
+
+# Installs the published release exactly as the README tells users to, on a
+# fresh runner, then exercises the installed gpanel-ctl against GitHub.
+on:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+  workflow_dispatch:
+
+jobs:
+  one-liner:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    env:
+      NO_COLOR: "1"
+    steps:
+      - name: install with the README one-liner
+        run: |
+          set -o pipefail
+          cmd=$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/README.md" | grep -m1 -o 'bash <(curl -fsSL [^)]*install.sh)')
+          echo "README: $cmd"
+          sudo bash -c "$cmd" 2>&1 | tee install.log
+      - name: panel is up and the printed password works
+        run: |
+          set -eu
+          tag=$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName -q .tagName)
+          test "$(/usr/local/bin/gpanel -version)" = "$tag"
+          systemctl is-active gpanel
+          pw=$(grep -o '初始密码 *[0-9a-f]\{16\}' install.log | awk '{print $2}')
+          curl -fsS -X POST http://127.0.0.1:24444/api/auth/login -d "{\"username\":\"admin\",\"password\":\"$pw\"}" | grep -q admin
+          echo "OK: $tag running, login works"
+        env:
+          GH_TOKEN: ${{ github.token }}
+      - name: gpanel-ctl against the live release
+        run: |
+          set -eu
+          sudo gpanel-ctl status
+          sudo gpanel-ctl update -y | tee update.log
+          grep -q 已经是最新版本 update.log
+          out=$(sudo gpanel-ctl reset-password -y)
+          echo "$out" | grep -q '新密码'
+          sudo gpanel-ctl uninstall -y --purge
+          test ! -e /usr/local/bin/gpanel && test ! -e /var/lib/gpanel
