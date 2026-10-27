@@ -150,6 +150,150 @@ func (f *FS) Rename(from, to string) error {
 	return f.root.Rename(clean(from), clean(to))
 }
 
+// Move moves each of paths into destDir, keeping its name. Moving an item
+// onto itself is a no-op; an existing target or moving a directory into
+// itself is an error.
+func (f *FS) Move(paths []string, destDir string) error {
+	dest, err := f.dirOf(destDir)
+	if err != nil {
+		return err
+	}
+	for _, p := range paths {
+		src := clean(p)
+		if err := checkSource(src, dest); err != nil {
+			return err
+		}
+		target := filepath.Join(dest, filepath.Base(src))
+		if target == src {
+			continue
+		}
+		if _, err := f.root.Lstat(target); err == nil {
+			return fmt.Errorf("目标已存在：%s", filepath.Base(src))
+		}
+		if err := f.root.Rename(src, target); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Copy copies each of paths (recursively) into destDir. Name clashes get a
+// " - 副本" suffix, so copying into the same directory duplicates. Symlinks
+// are skipped, as in Zip. Returns the names created in destDir.
+func (f *FS) Copy(paths []string, destDir string) ([]string, error) {
+	dest, err := f.dirOf(destDir)
+	if err != nil {
+		return nil, err
+	}
+	var created []string
+	for _, p := range paths {
+		src := clean(p)
+		if err := checkSource(src, dest); err != nil {
+			return created, err
+		}
+		name := f.freeName(dest, filepath.Base(src))
+		if err := f.copyTree(src, filepath.Join(dest, name)); err != nil {
+			return created, err
+		}
+		created = append(created, name)
+	}
+	return created, nil
+}
+
+// dirOf cleans p and checks that it is an existing directory.
+func (f *FS) dirOf(p string) (string, error) {
+	d := clean(p)
+	st, err := f.root.Stat(d)
+	if err != nil {
+		return "", err
+	}
+	if !st.IsDir() {
+		return "", errors.New("目标不是文件夹")
+	}
+	return d, nil
+}
+
+func checkSource(src, dest string) error {
+	if src == "." {
+		return errors.New("不能移动或复制根目录")
+	}
+	if dest == src || strings.HasPrefix(dest, src+string(filepath.Separator)) {
+		return fmt.Errorf("不能把 %s 放进它自己里面", filepath.Base(src))
+	}
+	return nil
+}
+
+// freeName returns name, or "base - 副本[ (n)].ext" if name is taken in dir.
+func (f *FS) freeName(dir, name string) string {
+	taken := func(n string) bool {
+		_, err := f.root.Lstat(filepath.Join(dir, n))
+		return err == nil
+	}
+	if !taken(name) {
+		return name
+	}
+	ext := filepath.Ext(name)
+	if ext == name { // ".env": treat the whole name as the base
+		ext = ""
+	}
+	base := strings.TrimSuffix(name, ext)
+	for i := 1; ; i++ {
+		n := base + " - 副本" + ext
+		if i > 1 {
+			n = fmt.Sprintf("%s - 副本 (%d)%s", base, i, ext)
+		}
+		if !taken(n) {
+			return n
+		}
+	}
+}
+
+func (f *FS) copyTree(src, dst string) error {
+	st, err := f.root.Lstat(src)
+	if err != nil {
+		return err
+	}
+	switch {
+	case st.Mode()&fs.ModeSymlink != 0:
+		return nil
+	case st.IsDir():
+		if err := f.root.Mkdir(dst, st.Mode().Perm()|0o700); err != nil {
+			return err
+		}
+		d, err := f.root.Open(src)
+		if err != nil {
+			return err
+		}
+		names, err := d.Readdirnames(-1)
+		d.Close()
+		if err != nil {
+			return err
+		}
+		for _, n := range names {
+			if err := f.copyTree(filepath.Join(src, n), filepath.Join(dst, n)); err != nil {
+				return err
+			}
+		}
+		return nil
+	case !st.Mode().IsRegular():
+		return nil // devices, sockets, ...
+	}
+	in, err := f.root.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := f.root.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, st.Mode().Perm())
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		return err
+	}
+	return out.Close()
+}
+
 func (f *FS) Remove(p string) error {
 	if clean(p) == "." {
 		return errors.New("不能删除根目录")

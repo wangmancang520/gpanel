@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strings"
 
 	"gpanel/internal/httpx"
 )
@@ -35,6 +36,8 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+p+"/upload", h.with(h.upload))
 	mux.HandleFunc("POST "+p+"/mkdir", h.with(h.mkdir))
 	mux.HandleFunc("POST "+p+"/rename", h.with(h.rename))
+	mux.HandleFunc("POST "+p+"/move", h.with(h.move))
+	mux.HandleFunc("POST "+p+"/copy", h.with(h.copy))
 	mux.HandleFunc("POST "+p+"/delete", h.with(h.remove))
 	mux.HandleFunc("POST "+p+"/zip", h.with(h.zip))
 	mux.HandleFunc("POST "+p+"/unzip", h.with(h.unzip))
@@ -97,6 +100,13 @@ func (h *Handler) write(fsys *FS, w http.ResponseWriter, r *http.Request) error 
 	return nil
 }
 
+// previewTypes may be served inline for the image viewer. SVG and HTML are
+// deliberately absent: served from the panel's origin they could run script.
+var previewTypes = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif",
+	".webp": "image/webp", ".bmp": "image/bmp", ".ico": "image/x-icon",
+}
+
 func (h *Handler) download(fsys *FS, w http.ResponseWriter, r *http.Request) error {
 	p := r.URL.Query().Get("path")
 	file, st, err := fsys.OpenFile(p)
@@ -104,7 +114,14 @@ func (h *Handler) download(fsys *FS, w http.ResponseWriter, r *http.Request) err
 		return err
 	}
 	defer file.Close()
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": path.Base(p)}))
+	disposition := "attachment"
+	if ct, ok := previewTypes[strings.ToLower(path.Ext(p))]; ok && r.URL.Query().Get("inline") == "1" {
+		disposition = "inline"
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
+	}
+	w.Header().Set("Content-Disposition", mime.FormatMediaType(disposition, map[string]string{"filename": path.Base(p)}))
 	http.ServeContent(w, r, st.Name(), st.ModTime(), file)
 	return nil
 }
@@ -159,6 +176,37 @@ func (h *Handler) rename(fsys *FS, w http.ResponseWriter, r *http.Request) error
 		return err
 	}
 	httpx.OK(w)
+	return nil
+}
+
+func (h *Handler) move(fsys *FS, w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		Paths []string
+		Dest  string
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	if err := fsys.Move(req.Paths, req.Dest); err != nil {
+		return err
+	}
+	httpx.OK(w)
+	return nil
+}
+
+func (h *Handler) copy(fsys *FS, w http.ResponseWriter, r *http.Request) error {
+	var req struct {
+		Paths []string
+		Dest  string
+	}
+	if err := httpx.Decode(r, &req); err != nil {
+		return err
+	}
+	created, err := fsys.Copy(req.Paths, req.Dest)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"created": created})
 	return nil
 }
 

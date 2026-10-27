@@ -87,6 +87,9 @@ check "写入文件"              'c -X PUT "$F/content?path=/a.txt" --data-bina
 check "读取文件"              '[ "$(c "$F/content?path=/a.txt")" = hello ]'
 check "新建目录与上传"        'c -X POST $F/mkdir -d "{\"path\":\"/d\"}" >/dev/null; c -X POST -F "file=@$HERE/fake-server.sh" "$F/upload?path=/d" | grep -q fake-server'
 check "压缩与解压"            'c -X POST $F/zip -d "{\"paths\":[\"/d\",\"/a.txt\"],\"dest\":\"/b.zip\"}" >/dev/null; c -X POST $F/unzip -d "{\"path\":\"/b.zip\",\"dest\":\"/out\"}" >/dev/null; [ "$(c "$F/content?path=/out/a.txt")" = hello ]'
+check "复制（同名生成副本）"    'c -X POST $F/copy -d "{\"paths\":[\"/a.txt\"],\"dest\":\"/\"}" | grep -q "a - 副本.txt"'
+check "移动到文件夹"          'c -X POST $F/move -d "{\"paths\":[\"/a - 副本.txt\"],\"dest\":\"/d\"}" | grep -q ok && [ "$(c "$F/content?path=/d/a%20-%20%E5%89%AF%E6%9C%AC.txt")" = hello ]'
+check "不能移动到自身内部"    'c -X POST $F/move -d "{\"paths\":[\"/d\"],\"dest\":\"/d\"}" | grep -q error'
 check "下载文件"              '[ "$(c "$F/download?path=/out/a.txt")" = hello ]'
 check "路径越界被拒"          'c "$F/content?path=../../../etc/hosts" | grep -q error'
 WD=$(status "$ID" | jfield dir)

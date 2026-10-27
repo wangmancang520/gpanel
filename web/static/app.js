@@ -1,5 +1,6 @@
 import { api, toasts, attempt } from './api.js';
 import { Icon, Logo } from './icons.js';
+import { DialogHost } from './dialogs.js';
 import { LoginView } from './views/login.js';
 import { Dashboard } from './views/dashboard.js';
 import { InstanceList } from './views/instances.js';
@@ -18,7 +19,7 @@ const nav = [
 ];
 
 const App = {
-  components: { LoginView, Dashboard, InstanceList, InstanceDetail, RuntimesView, PasswordDialog, Logo },
+  components: { LoginView, Dashboard, InstanceList, InstanceDetail, RuntimesView, PasswordDialog, Logo, DialogHost },
   setup() {
     const user = ref(null);
     const ready = ref(false);
@@ -80,6 +81,7 @@ const App = {
         <PasswordDialog v-if="showPassword" @close="showPassword = false" />
       </Transition>
     </template>
+    <DialogHost />
     <TransitionGroup name="toast" tag="div" class="toasts" aria-live="polite">
       <div v-for="t in toasts" :key="t.id" class="toast" :class="t.kind">
         <Icon :name="toastIcon[t.kind] || 'info'" />{{ t.msg }}
@@ -88,4 +90,7 @@ const App = {
   `,
 };
 
-createApp(App).component('Icon', Icon).mount('#app');
+createApp(App)
+  .component('Icon', Icon)
+  .directive('focus', { mounted: (el) => el.focus() })
+  .mount('#app');
