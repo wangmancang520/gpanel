@@ -14,6 +14,9 @@ type Config struct {
 	// JavaMirror optionally downloads Temurin builds from a mirror, with placeholders
 	// {major} {image} {arch} {os} {file}; falls back to the official source.
 	JavaMirror string
+	// DisableTLS serves plain HTTP only, ignoring the saved HTTPS settings;
+	// a way back in if a certificate or "force HTTPS" locks you out.
+	DisableTLS bool
 }
 
 // Load reads flags, falling back to GPANEL_* environment variables, then defaults.
@@ -23,6 +26,7 @@ func Load() Config {
 	flag.StringVar(&c.DataDir, "data", env("GPANEL_DATA", "data"), "data directory")
 	flag.StringVar(&c.WebDir, "web-dir", env("GPANEL_WEB_DIR", ""), "serve frontend from this directory (dev)")
 	flag.StringVar(&c.JavaMirror, "java-mirror", env("GPANEL_JAVA_MIRROR", ""), "Adoptium mirror URL template, e.g. https://mirrors.tuna.tsinghua.edu.cn/Adoptium/{major}/{image}/{arch}/{os}/{file}")
+	flag.BoolVar(&c.DisableTLS, "disable-tls", os.Getenv("GPANEL_DISABLE_TLS") == "1", "serve plain HTTP only, ignoring HTTPS settings (recovery)")
 	flag.Parse()
 	if abs, err := filepath.Abs(c.DataDir); err == nil {
 		c.DataDir = abs

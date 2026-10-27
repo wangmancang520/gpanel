@@ -9,7 +9,7 @@ go build -o bin/gpanel ./cmd/gpanel
 ./bin/gpanel -addr 127.0.0.1:24444 -data ./data
 ```
 
-首次启动会在日志中打印 `admin` 的初始密码。对公网开放时请在前面放 Caddy / Nginx 提供 HTTPS，并用 `-addr 0.0.0.0:24444` 或只让反代访问。
+首次启动会在日志中打印 `admin` 的初始密码。对公网开放时需要 HTTPS：可以在面板「安全」页上传证书或生成自签名证书（见下文「HTTPS」），也可以在前面放 Caddy / Nginx 反代并只让反代访问面板。
 
 | 参数 | 环境变量 | 默认 |
 |---|---|---|
@@ -17,6 +17,7 @@ go build -o bin/gpanel ./cmd/gpanel
 | `-data` | `GPANEL_DATA` | `data` |
 | `-web-dir` | `GPANEL_WEB_DIR` | 空（使用内嵌前端）；开发时设为 `web/static` 免重编译 |
 | `-java-mirror` | `GPANEL_JAVA_MIRROR` | 空（官方源）；见下文「Java 版本」 |
+| `-disable-tls` | `GPANEL_DISABLE_TLS=1` | 关闭；临时只用 HTTP，忽略 HTTPS 设置（证书出问题时用来恢复） |
 
 交叉编译：`CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./cmd/gpanel`
 
@@ -60,6 +61,7 @@ internal/
   files/             基于 os.Root 的沙箱文件管理
   runtimes/          运行时检测（Java），通过 LaunchHook 注入启动参数
   system/            主机配置与负载采样（概览页），按进程组统计实例 CPU / 内存
+  certs/             面板自身的 HTTPS 证书管理；同一端口同时服务 HTTP 和 HTTPS
 web/static/          前端（Vue 3 + xterm.js，无构建步骤）
 deploy/              systemd unit、环境变量模板、安装/升级脚本
 scripts/             冒烟测试（smoke.sh、systemd-smoke.sh）
@@ -89,6 +91,18 @@ data/                运行时数据：users.json、instances.json、instances/<
   镜像常比官方晚几天，缺少最新构建时自动回退到官方源（GitHub）；无论来源都用官方 API 给出的 SHA-256 校验。
 - 自动检测 `JAVA_HOME`、PATH、系统常见目录（`/usr/lib/jvm`、`/Library/Java/JavaVirtualMachines`、`C:\Program Files\Java` 等）。也可以手动把 JDK 解压到 `data/runtimes/java/<任意名>/` 后重新扫描。
 - 实例设置里选择运行时；启动命令用 `{{java}}` 引用，例如 `{{java}} -Xmx4G -jar server.jar nogui`。同时会设置 `JAVA_HOME` 并把其 `bin` 放到 PATH 最前。
+
+## HTTPS
+
+在「安全」页管理，设置和证书存放在 `data/tls/`（私钥权限 0600）：
+
+- **上传证书**：PEM 格式的完整证书链（如 Let's Encrypt 的 `fullchain.pem`）和未加密的私钥。保存前会校验证书与私钥是否匹配、是否过期。
+- **生成自签名证书**：ECDSA P-256，可填多个域名或 IP，适合内网；浏览器首次访问会提示不受信任。
+- **启用 HTTPS**：同一端口同时接受 HTTP 和 HTTPS（按连接的第一个字节区分），开关和替换证书都即时生效，无需重启。
+- **强制 HTTPS**：HTTP 请求 307 跳转到 HTTPS。只能在已通过 HTTPS 打开页面时开启，确保证书可用后才切换。
+- **救急**：如果证书或强制跳转导致无法访问，用 `-disable-tls`（或 `GPANEL_DISABLE_TLS=1`）启动面板，会临时只用 HTTP，已保存的设置不变。
+
+修改密码后，该账号在其他设备上的登录会话会被立即退出。
 
 ## 终端协议
 

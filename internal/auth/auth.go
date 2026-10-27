@@ -140,6 +140,21 @@ func (s *Service) userFor(r *http.Request) (string, bool) {
 	return sess.username, true
 }
 
+// dropSessions ends every session of username except keep (the caller's own),
+// so a password change locks out anyone holding an old session.
+func (s *Service) dropSessions(username, keep string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := 0
+	for token, sess := range s.sessions {
+		if sess.username == username && token != keep {
+			delete(s.sessions, token)
+			n++
+		}
+	}
+	return n
+}
+
 // Username returns the logged-in user stored on the request context by Middleware.
 func Username(ctx context.Context) string {
 	u, _ := ctx.Value(ctxKey{}).(string)
@@ -229,7 +244,11 @@ func (s *Service) Register(mux *http.ServeMux) {
 			httpx.Error(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		httpx.OK(w)
+		current := ""
+		if c, err := r.Cookie(cookieName); err == nil {
+			current = c.Value
+		}
+		httpx.JSON(w, http.StatusOK, map[string]int{"loggedOut": s.dropSessions(user, current)})
 	})
 }
 

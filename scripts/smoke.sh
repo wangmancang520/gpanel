@@ -122,6 +122,21 @@ if [ "${SMOKE_NETWORK:-1}" != 0 ]; then
   fi
 fi
 
+# --- HTTPS on the same port, and password changes
+S="https://127.0.0.1:$PORT"
+check "未启用时拒绝 HTTPS"    '! curl -sk -o /dev/null $S/'
+check "生成自签名证书"        'c -X POST $B/api/system/tls/self-signed -d "{\"hosts\":[\"127.0.0.1\"],\"days\":30}" | grep -q "\"selfSigned\":true"'
+check "启用 HTTPS"            'c -X PUT $B/api/system/tls -d "{\"enabled\":true}" | grep -q "\"active\":true"'
+check "同端口 HTTPS 可用"     'curl -sk -b "$JAR" $S/api/instances | grep -q smoke'
+check "HTTP 仍可用"           '[ "$(curl -s -o /dev/null -w %{http_code} $B/)" = 200 ]'
+c -X PUT $B/api/system/tls -d '{"enabled":true,"forceHttps":true}' >/dev/null
+check "强制 HTTPS 时跳转"     '[ "$(curl -s -o /dev/null -w %{http_code}%{redirect_url} $B/x)" = "307$S/x" ]'
+check "通过 HTTPS 关闭"       'curl -sk -b "$JAR" -X PUT $S/api/system/tls -d "{\"enabled\":false}" | grep -q "\"active\":false"'
+J2="$WORK/cookies2"
+curl -s -c "$J2" -X POST $B/api/auth/login -d "{\"username\":\"admin\",\"password\":\"$PW\"}" >/dev/null
+check "改密码退出其他会话"    'c -X POST $B/api/auth/password -d "{\"oldPassword\":\"$PW\",\"newPassword\":\"smoke-pass-123\"}" | grep -q "\"loggedOut\":1" && [ "$(curl -s -b "$J2" -o /dev/null -w %{http_code} $B/api/instances)" = 401 ]'
+check "当前会话保持登录"      'c $B/api/instances | grep -q smoke'
+
 # --- graceful shutdown
 c -X PUT $B/api/instances/$ID -d "{\"name\":\"smoke\",\"command\":\"bash $HERE/fake-server.sh\",\"stopCommand\":\"stop\"}" >/dev/null
 c -X POST $B/api/instances/$ID/start >/dev/null

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"gpanel/internal/auth"
+	"gpanel/internal/certs"
 	"gpanel/internal/config"
 	"gpanel/internal/events"
 	"gpanel/internal/files"
@@ -28,6 +29,11 @@ func main() {
 	}
 
 	bus := events.NewBus()
+
+	tlsMgr, err := certs.New(cfg.Path("tls"), cfg.DisableTLS)
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	authSvc, err := auth.New(cfg.Path("users.json"))
 	if err != nil {
@@ -84,6 +90,7 @@ func main() {
 		files.NewHandler("/api/instances", instances.WorkDir),
 		runtimes.NewHandler(rts),
 		monitor,
+		tlsMgr,
 	}
 	mux := http.NewServeMux()
 	for _, m := range modules {
@@ -93,15 +100,24 @@ func main() {
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           authSvc.Middleware(mux),
+		Handler:           tlsMgr.Redirect(authSvc.Middleware(mux)),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
 	instances.StartAutoStart()
 
+	// One port for both protocols: HTTPS can be switched on from the panel.
+	ln, err := tlsMgr.Listen(cfg.Addr)
+	if err != nil {
+		log.Fatal(err)
+	}
 	go func() {
-		log.Printf("面板已启动: http://%s  数据目录: %s", cfg.Addr, cfg.DataDir)
-		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		scheme := "http"
+		if tlsMgr.Active() {
+			scheme = "http(s)"
+		}
+		log.Printf("面板已启动: %s://%s  数据目录: %s", scheme, cfg.Addr, cfg.DataDir)
+		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatal(err)
 		}
 	}()
