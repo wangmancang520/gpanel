@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+	"time"
 )
 
 func TestParseStat(t *testing.T) {
@@ -45,8 +46,15 @@ func TestCPUTimesAndMemInfo(t *testing.T) {
 func TestMonitorReportsOwnProcessGroup(t *testing.T) {
 	pgid := syscall.Getpgrp()
 	m := NewMonitor(t.TempDir(), func() map[string]int { return map[string]int{"self": pgid} })
-	m.sample()
-	s := m.Snapshot()
+	// A history point needs the CPU tick counters to advance between two
+	// samples, which may take a few milliseconds on an idle machine.
+	var s Snapshot
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+		m.sample()
+		if s = m.Snapshot(); len(s.History) > 0 {
+			break
+		}
+	}
 	if !s.Supported || s.Host.CPUCores == 0 || s.Load.MemTotal == 0 || s.Load.DiskTotal == 0 {
 		t.Fatalf("incomplete snapshot: %+v", s)
 	}
@@ -54,7 +62,7 @@ func TestMonitorReportsOwnProcessGroup(t *testing.T) {
 	if !ok || u.Mem == 0 || u.Procs == 0 {
 		t.Fatalf("own process group not measured: %+v", s.Instances)
 	}
-	if len(s.History) != 1 {
-		t.Errorf("history has %d samples after one primed sample, want 1", len(s.History))
+	if len(s.History) == 0 {
+		t.Error("no history sample recorded")
 	}
 }
