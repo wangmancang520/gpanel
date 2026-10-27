@@ -18,7 +18,8 @@ jobs:
       - name: install with the README one-liner
         run: |
           set -o pipefail
-          cmd=$(curl -fsSL "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/README.md" | grep -m1 -o 'bash <(curl -fsSL [^)]*install.sh)')
+          curl -fsSL -o README.md "https://raw.githubusercontent.com/$GITHUB_REPOSITORY/main/README.md"
+          cmd=$(grep -m1 -o 'bash <(curl -fsSL [^)]*install.sh)' README.md)
           echo "README: $cmd"
           sudo bash -c "$cmd" 2>&1 | tee install.log
       - name: panel is up and the printed password works
