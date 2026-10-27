@@ -28,7 +28,9 @@ type muxListener struct {
 	conns chan net.Conn
 	done  chan struct{}
 	once  sync.Once
-	err   error // set before done is closed
+
+	mu  sync.Mutex
+	err error // why the inner listener stopped, if not via Close
 }
 
 const sniffTimeout = 10 * time.Second
@@ -40,7 +42,13 @@ func (l *muxListener) acceptLoop() {
 			if ne, ok := err.(net.Error); ok && ne.Timeout() {
 				continue
 			}
-			l.err = err
+			select {
+			case <-l.done: // closed by us; Accept reports net.ErrClosed
+			default:
+				l.mu.Lock()
+				l.err = err
+				l.mu.Unlock()
+			}
 			l.Close()
 			return
 		}
@@ -78,6 +86,8 @@ func (l *muxListener) Accept() (net.Conn, error) {
 	case c := <-l.conns:
 		return c, nil
 	case <-l.done:
+		l.mu.Lock()
+		defer l.mu.Unlock()
 		if l.err != nil {
 			return nil, l.err
 		}
