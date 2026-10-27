@@ -5,6 +5,8 @@
 # Destructive to the host's gpanel install; meant for throwaway CI runners.
 #
 #   sudo scripts/systemd-smoke.sh DIR   # DIR holds gpanel-v1..v3 built with -X main.version=v0.0.N
+# Variables set here are read inside the quoted check expressions (eval).
+# shellcheck disable=SC2034
 set -u
 
 DIR="$(cd "${1:?usage: sudo $0 <dir with gpanel-v1, gpanel-v2, gpanel-v3>}" && pwd)"

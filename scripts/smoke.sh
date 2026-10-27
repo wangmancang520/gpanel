@@ -8,6 +8,8 @@
 #   SMOKE_NETWORK=0      skip checks that call the Adoptium API
 #   SMOKE_JAVA=1         also install a real Temurin JRE and run it (~50 MB download)
 #   SMOKE_JAVA_MAJOR=21  which Java major version to install
+# Variables set here are read inside the quoted check expressions (eval).
+# shellcheck disable=SC2034
 set -u
 
 BIN="$(cd "$(dirname "${1:-bin/gpanel}")" && pwd)/$(basename "${1:-bin/gpanel}")"
@@ -107,7 +109,7 @@ if [ "${SMOKE_NETWORK:-1}" != 0 ]; then
 
   if [ "${SMOKE_JAVA:-0}" = 1 ]; then
     MAJOR="${SMOKE_JAVA_MAJOR:-21}"
-    REL=$(echo "$RELS" | grep -o "\"id\":\"jdk-$MAJOR[^\"]*-jre\"" | head -1 | cut -d'"' -f4)
+    REL=$(echo "$RELS" | grep -o "\"id\":\"jdk-${MAJOR}[^\"]*-jre\"" | head -1 | cut -d'"' -f4)
     check "找到 Java $MAJOR JRE" '[ -n "$REL" ]'
     c -X POST $B/api/runtimes/install -d "{\"kind\":\"java\",\"releaseId\":\"$REL\"}" >/dev/null
     check "下载、校验并解压 JRE" 'wait_for 300 "c $B/api/runtimes/jobs | grep -q \"\\\"state\\\":\\\"\\(done\\|failed\\)\\\"\""; c $B/api/runtimes/jobs | grep -q "\"state\":\"done\""'
