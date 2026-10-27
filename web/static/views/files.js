@@ -648,20 +648,6 @@ export const FileManager = {
         </div>
       </div>
 
-      <Transition name="slide">
-        <div v-if="selected.size" class="fm-selbar">
-          <span>已选择 <strong>{{ selected.size }}</strong> 项<span v-if="selectedSize" class="muted"> · {{ formatSize(selectedSize) }}</span></span>
-          <div class="row">
-            <button v-if="selected.size === 1 && !selectedEntries[0]?.isDir" class="link" @click="download(selectedEntries[0])"><Icon name="download" />下载</button>
-            <button class="link" @click="setClipboard('cut')"><Icon name="scissors" />剪切</button>
-            <button class="link" @click="setClipboard('copy')"><Icon name="copy" />复制</button>
-            <button v-if="selected.size === 1" class="link" @click="startRename([...selected][0])"><Icon name="edit" />重命名</button>
-            <button class="link" @click="zip()"><Icon name="archive" />压缩</button>
-            <button class="link danger" @click="remove()"><Icon name="trash" />删除</button>
-            <button class="link" @click="selectOnly(null)" title="取消选择 (Esc)" aria-label="取消选择"><Icon name="x" /></button>
-          </div>
-        </div>
-      </Transition>
 
       <div class="fm-body" ref="body" @pointerdown="onBodyPointerDown" @contextmenu.prevent="blankMenu"
         @dragover="onBodyDragOver" @dragleave="onBodyDragLeave" @drop="onBodyDrop">
@@ -702,6 +688,22 @@ export const FileManager = {
         <Transition name="fade"><div v-if="osDrag" class="fm-dropzone"><Icon name="upload" :size="32" />松开即可上传到「{{ path === '/' ? '根目录' : path }}」</div></Transition>
       </div>
 
+      <div class="fm-dock">
+      <Transition name="pop">
+        <div v-if="selected.size" class="fm-selbar" role="toolbar" aria-label="所选项目操作">
+          <span>已选择 <strong>{{ selected.size }}</strong> 项<span v-if="selectedSize" class="muted"> · {{ formatSize(selectedSize) }}</span></span>
+          <div class="row">
+            <button v-if="selected.size === 1 && !selectedEntries[0]?.isDir" class="link" @click="download(selectedEntries[0])"><Icon name="download" />下载</button>
+            <button class="link" @click="setClipboard('cut')"><Icon name="scissors" />剪切</button>
+            <button class="link" @click="setClipboard('copy')"><Icon name="copy" />复制</button>
+            <button v-if="selected.size === 1" class="link" @click="startRename([...selected][0])"><Icon name="edit" />重命名</button>
+            <button class="link" @click="zip()"><Icon name="archive" />压缩</button>
+            <button class="link danger" @click="remove()"><Icon name="trash" />删除</button>
+            <button class="link" @click="selectOnly(null)" title="取消选择 (Esc)" aria-label="取消选择"><Icon name="x" /></button>
+          </div>
+        </div>
+      </Transition>
+      </div>
       <div class="fm-status muted small">
         <span>{{ counts.dirs }} 个文件夹，{{ counts.files }} 个文件<template v-if="visible.length !== entries.length">（共 {{ entries.length }} 项）</template></span>
         <span v-if="clipHere" class="row fm-clip">

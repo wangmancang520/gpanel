@@ -366,18 +366,23 @@ label.check { flex-direction: row; align-items: center; gap: 6px; font-weight: 4
 .fm-search { flex-direction: row; align-items: center; gap: 6px; padding: 0 8px; width: 190px; border: 1px solid var(--border); border-radius: var(--radius-sm); font-weight: 400; transition: border-color var(--dur), box-shadow var(--dur), width .25s var(--ease); }
 .fm-search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent); width: 230px; }
 .fm-search input { border: 0; padding: 6px 0; background: none; box-shadow: none !important; }
+/* Selection actions float over the bottom of the file area. The dock has no
+   height, so showing the bar never shifts the items under the pointer; being
+   sticky, it stays on screen while scrolling a long folder. */
+.fm-dock { position: sticky; bottom: 0; height: 0; z-index: 4; display: flex; justify-content: center; }
 .fm-selbar {
-  display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap;
-  padding: 6px 16px; min-height: 40px; background: color-mix(in srgb, var(--accent) 7%, var(--surface)); border-bottom: 1px solid var(--border);
+  position: absolute; bottom: 14px; max-width: calc(100% - 24px);
+  display: flex; align-items: center; gap: 18px; padding: 7px 10px 7px 16px; white-space: nowrap;
+  background: var(--surface); border: 1px solid var(--border-strong); border-radius: 12px; box-shadow: var(--shadow-lg);
 }
-.fm-selbar .row { gap: 14px; }
+.fm-selbar .row { gap: 14px; flex-wrap: nowrap; }
 .fm-selbar button.link { display: inline-flex; gap: 4px; color: var(--text); }
 .fm-selbar button.link:hover { color: var(--accent); }
 .fm-selbar button.link.danger { color: var(--danger); }
-.slide-enter-active, .slide-leave-active { transition: max-height .2s var(--ease), opacity .2s var(--ease), padding .2s var(--ease); overflow: hidden; max-height: 60px; }
-.slide-enter-from, .slide-leave-to { max-height: 0; opacity: 0; padding-top: 0; padding-bottom: 0; }
+.pop-enter-active, .pop-leave-active { transition: opacity .18s var(--ease), transform .18s var(--ease); }
+.pop-enter-from, .pop-leave-to { opacity: 0; transform: translateY(10px) scale(.98); }
 
-.fm-body { position: relative; min-height: 340px; flex: 1; user-select: none; -webkit-user-select: none; padding-bottom: 24px; }
+.fm-body { position: relative; min-height: 340px; flex: 1; user-select: none; -webkit-user-select: none; padding-bottom: 72px; /* room for the floating selection bar */ }
 .fm-items { padding: 10px; }
 .fm-item {
   position: relative; border-radius: 8px; cursor: default; color: var(--text);
@@ -430,6 +435,10 @@ label.check { flex-direction: row; align-items: center; gap: 6px; font-weight: 4
 .fm-compact .fm-item { display: flex; align-items: center; padding: 5px 10px; min-height: 32px; }
 
 .fm-empty { position: absolute; inset: 40px 0 auto; pointer-events: none; }
+@media (max-width: 720px) {
+  .fm-selbar { gap: 10px; padding: 6px 10px; overflow-x: auto; scrollbar-width: none; }
+  .fm-selbar .row { gap: 10px; }
+}
 .fm-marquee { position: absolute; z-index: 2; pointer-events: none; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 2px; }
 .fm-dropzone {
   position: absolute; inset: 8px; z-index: 3; pointer-events: none; border-radius: var(--radius);
@@ -437,7 +446,7 @@ label.check { flex-direction: row; align-items: center; gap: 6px; font-weight: 4
   border: 2px dashed var(--accent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); color: var(--accent); font-weight: 500;
 }
 .fm-drag-ghost { position: fixed; top: -1000px; left: 0; padding: 4px 10px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 13px; white-space: nowrap; }
-.fm-status { display: flex; align-items: center; gap: 18px; padding: 7px 16px; border-top: 1px solid var(--border); flex-wrap: wrap; }
+.fm-status { display: flex; align-items: center; gap: 18px; padding: 7px 16px; border-top: 1px solid var(--border); flex-wrap: wrap; position: relative; z-index: 5; background: var(--surface); border-radius: 0 0 var(--radius) var(--radius); }
 .fm-status .fm-hint { margin-left: auto; }
 .fm-clip { gap: 6px; color: var(--text); }
 .fm-upload { display: inline-flex; align-items: center; gap: 8px; color: var(--text); max-width: 360px; }
