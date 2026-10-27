@@ -1,5 +1,6 @@
 import { api, attempt, toast } from '../api.js';
 import { confirmAction } from '../dialogs.js';
+import { AcmePanel } from './security-acme.js';
 
 // Security page: change the password, and manage the panel's HTTPS
 // certificate (upload PEM, or generate a self-signed one) and switches.
@@ -62,12 +63,12 @@ const PasswordCard = {
 };
 
 export const SecurityView = {
-  components: { PasswordCard },
+  components: { PasswordCard, AcmePanel },
   props: { user: String },
   setup() {
     const { ref, reactive, computed, onMounted } = Vue;
     const st = ref(null);
-    const mode = ref(null); // null | 'upload' | 'self'
+    const mode = ref(null); // null | 'upload' | 'self' | 'acme'
     const busy = ref(false);
     const up = reactive({ cert: '', key: '' });
     const self = reactive({ hosts: [location.hostname, 'localhost', '127.0.0.1'].filter((v, i, a) => a.indexOf(v) === i).join(', '), days: 825 });
@@ -140,7 +141,7 @@ export const SecurityView = {
     const copy = (text) => navigator.clipboard?.writeText(text).then(() => toast('已复制', 'ok'));
 
     return {
-      hostname: location.hostname, st, mode, busy, up, self, https, httpsUrl, cert, validity, names, hostCovered,
+      hostname: location.hostname, st, mode, busy, up, self, https, httpsUrl, cert, validity, names, hostCovered, load,
       toggleEnabled, toggleForce, uploadCert, generate, removeCert, readFile, copy, fmtDate,
     };
   },
@@ -191,6 +192,7 @@ export const SecurityView = {
               </span>
             </div>
             <div class="row cert-actions">
+              <button @click="mode = mode === 'acme' ? null : 'acme'"><Icon name="shield-check" />申请证书</button>
               <button @click="mode = mode === 'upload' ? null : 'upload'"><Icon name="upload" />替换</button>
               <button @click="mode = mode === 'self' ? null : 'self'"><Icon name="refresh" />重新生成</button>
               <button class="danger icon-only" title="删除证书" aria-label="删除证书" @click="removeCert"><Icon name="trash" /></button>
@@ -212,10 +214,12 @@ export const SecurityView = {
         </div>
         <div v-else-if="!mode" class="cert-empty">
           <Icon name="shield" :size="34" />
-          <p>还没有证书。可以上传已有证书（如 Let's Encrypt 签发的），或生成一个自签名证书用于内网。</p>
-          <div class="row"><button class="primary" @click="mode = 'upload'"><Icon name="upload" />上传证书</button><button @click="mode = 'self'"><Icon name="shield-check" />生成自签名证书</button></div>
+          <p>还没有证书。可以用域名免费申请 Let's Encrypt 证书，上传已有证书，或生成一个自签名证书用于内网。</p>
+          <div class="row"><button class="primary" @click="mode = 'acme'"><Icon name="shield-check" />通过域名申请</button>
+            <button @click="mode = 'upload'"><Icon name="upload" />上传证书</button><button @click="mode = 'self'"><Icon name="shield" />生成自签名证书</button></div>
         </div>
 
+        <AcmePanel :show-form="mode === 'acme'" @changed="load" @close="mode = null" />
         <Transition name="pop">
           <form v-if="mode === 'upload'" class="form cert-form" @submit.prevent="uploadCert">
             <h3>上传证书</h3>

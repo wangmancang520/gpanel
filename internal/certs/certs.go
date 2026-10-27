@@ -264,8 +264,15 @@ func parse(certPEM, keyPEM []byte) (*tls.Certificate, *CertInfo, error) {
 	for i, b := range sum {
 		fp[i] = fmt.Sprintf("%02X", b)
 	}
+	subject := leaf.Subject.CommonName
+	if subject == "" && len(leaf.DNSNames) > 0 {
+		subject = leaf.DNSNames[0] // Let's Encrypt is dropping the CN
+	}
+	if subject == "" {
+		subject = name(leaf.Subject)
+	}
 	info := &CertInfo{
-		Subject:   name(leaf.Subject),
+		Subject:   subject,
 		Issuer:    name(leaf.Issuer),
 		DNSNames:  leaf.DNSNames,
 		NotBefore: leaf.NotBefore,

@@ -34,6 +34,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	issuer, err := certs.NewIssuer(tlsMgr, os.Getenv("GPANEL_ACME_DNS_RESOLVER"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	go issuer.RenewLoop(context.Background())
 
 	authSvc, err := auth.New(cfg.Path("users.json"))
 	if err != nil {
@@ -91,6 +96,7 @@ func main() {
 		runtimes.NewHandler(rts),
 		monitor,
 		tlsMgr,
+		issuer,
 	}
 	mux := http.NewServeMux()
 	for _, m := range modules {
@@ -99,8 +105,9 @@ func main() {
 	mux.Handle("/", web.Handler(cfg.WebDir))
 
 	srv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           tlsMgr.Redirect(authSvc.Middleware(mux)),
+		Addr: cfg.Addr,
+		// HTTP-01 challenges are answered before the HTTPS redirect and auth.
+		Handler:           issuer.ChallengeHandler(tlsMgr.Redirect(authSvc.Middleware(mux))),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 

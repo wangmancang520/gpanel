@@ -28,6 +28,7 @@ check "安装脚本成功"            'echo "$OUT" | grep -q 已安装并启动'
 check "unit 文件校验通过"      'systemd-analyze verify /etc/systemd/system/gpanel.service'
 check "服务处于运行状态"        'systemctl is-active --quiet gpanel'
 check "以 gpanel 用户运行"      '[ "$(ps -o user= -p "$(systemctl show -p MainPID --value gpanel)")" = gpanel ]'
+check "可绑定 80 端口（仅此权限）" 'grep -q "^CapAmb:[[:space:]]*0000000000000400$" /proc/$(systemctl show -p MainPID --value gpanel)/status'
 check "数据目录归 gpanel 所有"  '[ "$(stat -c %U /var/lib/gpanel)" = gpanel ]'
 check "面板可访问"              'wait_for 10 "curl -s -o /dev/null $B/"'
 PW=$(echo "$OUT" | grep -o '初始密码 [0-9a-f]*' | awk '{print $2}')
