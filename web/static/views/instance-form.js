@@ -58,6 +58,7 @@ export const InstanceForm = {
         </select>
         <small v-if="selectedRuntime" class="muted path">{{ selectedRuntime.home }}</small>
         <small v-else-if="form.runtime" class="error">所选运行时已不存在，请重新选择</small>
+        <small class="muted">启动时会把所选 Java 放到 PATH 最前面并设置 JAVA_HOME，所以整合包自带的启动脚本（如 <code>bash start.sh</code>）里直接调用 <code>java</code> 也会使用这个版本。脚本里写死的 Java 路径不受影响。</small>
       </label>
       <div class="grid2">
         <label>停止命令<input v-model="form.stopCommand" class="mono" placeholder="留空则发送 SIGTERM"></label>
