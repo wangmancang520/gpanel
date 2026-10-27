@@ -17,6 +17,13 @@ type Config struct {
 	// DisableTLS serves plain HTTP only, ignoring the saved HTTPS settings;
 	// a way back in if a certificate or "force HTTPS" locks you out.
 	DisableTLS bool
+
+	// One-shot commands for the installer and admins; the panel exits after.
+	ShowVersion   bool   // -version
+	ResetPassword bool   // -reset-password [-user NAME]
+	User          string // account for -reset-password
+	PrintUnit     bool   // -print-systemd-unit
+	PrintEnv      bool   // -print-env-template
 }
 
 // Load reads flags, falling back to GPANEL_* environment variables, then defaults.
@@ -27,6 +34,11 @@ func Load() Config {
 	flag.StringVar(&c.WebDir, "web-dir", env("GPANEL_WEB_DIR", ""), "serve frontend from this directory (dev)")
 	flag.StringVar(&c.JavaMirror, "java-mirror", env("GPANEL_JAVA_MIRROR", ""), "Adoptium mirror URL template, e.g. https://mirrors.tuna.tsinghua.edu.cn/Adoptium/{major}/{image}/{arch}/{os}/{file}")
 	flag.BoolVar(&c.DisableTLS, "disable-tls", os.Getenv("GPANEL_DISABLE_TLS") == "1", "serve plain HTTP only, ignoring HTTPS settings (recovery)")
+	flag.BoolVar(&c.ShowVersion, "version", false, "print the version and exit")
+	flag.BoolVar(&c.ResetPassword, "reset-password", false, "set a new random password for -user, print it and exit")
+	flag.StringVar(&c.User, "user", "admin", "account for -reset-password")
+	flag.BoolVar(&c.PrintUnit, "print-systemd-unit", false, "print the systemd unit for this version and exit")
+	flag.BoolVar(&c.PrintEnv, "print-env-template", false, "print the environment file template and exit")
 	flag.Parse()
 	if abs, err := filepath.Abs(c.DataDir); err == nil {
 		c.DataDir = abs

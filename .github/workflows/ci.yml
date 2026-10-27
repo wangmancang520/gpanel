@@ -44,18 +44,28 @@ jobs:
           SMOKE_JAVA: "1"
         run: scripts/smoke.sh bin/gpanel
 
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: shellcheck --severity=warning install.sh scripts/*.sh
+
   systemd:
-    name: systemd install (deploy/install.sh)
+    name: install.sh under systemd
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
-      - name: build
-        run: CGO_ENABLED=0 go build -o bin/gpanel ./cmd/gpanel
-      - name: install and exercise under systemd
-        run: sudo scripts/systemd-smoke.sh bin/gpanel
+      - name: build three versions
+        run: |
+          for v in 1 2 3; do
+            CGO_ENABLED=0 go build -ldflags "-X main.version=v0.0.$v" -o bin/gpanel-v$v ./cmd/gpanel
+          done
+      - name: install, update, roll back and uninstall under systemd
+        run: sudo scripts/systemd-smoke.sh bin
 
   build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }}
@@ -79,7 +89,7 @@ jobs:
           CGO_ENABLED: "0"
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
-        run: go build -trimpath -ldflags="-s -w" -o dist/gpanel-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/gpanel
+        run: go build -trimpath -ldflags="-s -w -X main.version=dev-${GITHUB_SHA::7}" -o dist/gpanel-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.ext }} ./cmd/gpanel
       - uses: actions/upload-artifact@v7
         with:
           name: gpanel-${{ matrix.goos }}-${{ matrix.goarch }}

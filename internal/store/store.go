@@ -11,12 +11,26 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 )
 
 type Collection[T any] struct {
 	mu    sync.RWMutex
 	path  string
 	items map[string]T
+	stamp fileStamp // of the file as last read or written
+}
+
+type fileStamp struct {
+	mod  time.Time
+	size int64
+}
+
+func stampOf(path string) fileStamp {
+	if st, err := os.Stat(path); err == nil {
+		return fileStamp{st.ModTime(), st.Size()}
+	}
+	return fileStamp{}
 }
 
 // Open loads the collection at path, creating an empty one if the file does not exist.
@@ -32,7 +46,29 @@ func Open[T any](path string) (*Collection[T], error) {
 	if err := json.Unmarshal(data, &c.items); err != nil {
 		return nil, err
 	}
+	c.stamp = stampOf(path)
 	return c, nil
+}
+
+// Refresh re-reads the file if another process changed it since it was last
+// read or written here, and reports whether it did.
+func (c *Collection[T]) Refresh() (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	st := stampOf(c.path)
+	if st == c.stamp {
+		return false, nil
+	}
+	data, err := os.ReadFile(c.path)
+	if err != nil {
+		return false, err
+	}
+	items := map[string]T{}
+	if err := json.Unmarshal(data, &items); err != nil {
+		return false, err
+	}
+	c.items, c.stamp = items, st
+	return true, nil
 }
 
 func (c *Collection[T]) Get(id string) (T, bool) {
@@ -91,5 +127,9 @@ func (c *Collection[T]) save() error {
 	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
-	return os.Rename(tmp, c.path)
+	if err := os.Rename(tmp, c.path); err != nil {
+		return err
+	}
+	c.stamp = stampOf(c.path)
+	return nil
 }

@@ -208,7 +208,8 @@ export const Dashboard = {
           <dt>CPU</dt><dd>{{ sys.host.cpuModel || '未知型号' }} <span class="muted">· {{ sys.host.cpuCores }} 线程</span></dd>
           <dt v-if="sys.host.memTotal">内存</dt><dd v-if="sys.host.memTotal">{{ formatSize(sys.host.memTotal) }}<span v-if="sys.host.swapTotal" class="muted"> · 交换 {{ formatSize(sys.host.swapTotal) }}</span></dd>
           <dt v-if="sys.host.bootTime">开机时长</dt><dd v-if="sys.host.bootTime">{{ formatDuration(now - new Date(sys.host.bootTime)) }}</dd>
-          <dt>面板运行时长</dt><dd>{{ formatDuration(now - new Date(sys.host.startedAt)) }} <span class="muted">· {{ sys.host.goVersion }}</span></dd>
+          <dt>GPanel 版本</dt><dd>{{ sys.host.version }} <span class="muted">· {{ sys.host.goVersion }}</span></dd>
+          <dt>面板运行时长</dt><dd>{{ formatDuration(now - new Date(sys.host.startedAt)) }}</dd>
           <dt>数据目录</dt><dd><code class="path">{{ sys.host.dataDir }}</code></dd>
         </dl>
       </section>

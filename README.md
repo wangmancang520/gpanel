@@ -2,7 +2,66 @@
 
 极简游戏服务器托管面板：游戏实例管理 + Web 终端 + 文件管理。Go 单二进制，前端内嵌，无需 Node、数据库或外部 PTY 程序。
 
-## 运行
+## 一键安装
+
+适用于使用 systemd 的 Linux（Ubuntu / Debian / CentOS / Rocky / Arch 等），x86_64 或 arm64。以 root 运行：
+
+```bash
+bash <(curl -fsSL https://github.com/wangmancang520/gpanel/releases/latest/download/install.sh)
+```
+
+安装过程中会询问端口（默认 24444）、是否允许外网访问、是否使用清华镜像下载 Java，结束时显示访问地址和 `admin` 的初始密码。之后用维护菜单管理面板：
+
+```bash
+sudo gpanel-ctl
+```
+
+```
+  ╭─────────╮
+  │  ▶ ▶ ▶  │  GPanel  游戏服务器管理面板
+  ╰─────────╯  安装与维护工具 · github.com/wangmancang520/gpanel
+  ────────────────────────────────────────────────────
+  状态  ● 运行中    版本  v0.1.0  （可更新到 v0.2.0）
+  地址  http://203.0.113.10:24444
+  ────────────────────────────────────────────────────
+
+  更新
+    1  更新面板  （新版本 v0.2.0）
+    2  回滚到上一版本
+
+  运行
+    3  启动 / 停止 / 重启
+    4  查看状态
+    5  查看日志
+
+  维护
+    6  重置管理员密码
+    7  修改配置（端口 / Java 下载源 / HTTPS 救急）
+    8  备份数据
+    9  卸载面板
+    0  退出
+```
+
+每一项也可以直接执行，方便写进脚本或定时任务，`sudo gpanel-ctl help` 查看全部命令和选项：
+
+| 命令 | 作用 |
+|---|---|
+| `sudo gpanel-ctl update` | 更新到最新版本：下载并校验 SHA-256 → 备份当前版本 → 替换并重启 → 检查面板是否正常；**新版本起不来会自动回滚**。维护脚本本身也随之更新 |
+| `sudo gpanel-ctl rollback` | 回到更新前的版本（再执行一次可以回来） |
+| `sudo gpanel-ctl reset-password` | 忘记密码时用：生成新密码并立即生效，同时退出所有已登录的会话；**不需要重启面板，正在运行的游戏服务器不受影响** |
+| `sudo gpanel-ctl config` | 修改端口和监听地址、切换 Java 下载源、HTTPS 救急开关（证书问题导致打不开面板时临时只用 HTTP） |
+| `sudo gpanel-ctl backup` | 把数据目录和配置打包到 `/root/gpanel-backup-时间.tar.gz`（不含可重新下载的 Java） |
+| `sudo gpanel-ctl uninstall` | 卸载，默认保留数据（重新安装后可继续使用）；加 `--purge` 彻底删除 |
+| `sudo gpanel-ctl install -y --port 8080 --bind 0.0.0.0` | 无人值守安装；`--version v0.2.0` 指定版本，`--local ./gpanel` 用本地文件 |
+
+说明：
+
+- 文件位置：程序 `/usr/local/bin/gpanel`，配置 `/etc/gpanel/gpanel.env`，数据 `/var/lib/gpanel`，日志 `journalctl -u gpanel`。面板和游戏服务器都以系统用户 `gpanel` 运行，只额外拥有绑定 1024 以下端口的权限（用于 HTTP 方式申请证书）。
+- **重启、更新面板会先优雅停止正在运行的游戏服务器**（发送停止命令，超时后强制结束），勾选了「自动启动」的实例会在面板启动后恢复；菜单在这类操作前会提示确认。
+- 访问 GitHub 慢时，可以在安装时或「修改配置」中设置 GitHub 下载加速前缀（也可用 `--mirror` / `GPANEL_MIRROR`）；无论从哪里下载，都会用发布时生成的 `SHA256SUMS` 校验。
+- 对公网开放时，登录后请在「安全」页修改密码并配置 HTTPS（支持用域名免费申请 Let's Encrypt 证书）。
+
+## 从源码运行
 
 ```bash
 go build -o bin/gpanel ./cmd/gpanel
@@ -21,20 +80,17 @@ go build -o bin/gpanel ./cmd/gpanel
 
 交叉编译：`CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build ./cmd/gpanel`
 
-## 部署到 Linux（systemd）
+其他命令行用法：`gpanel -version` 显示版本；`gpanel -data DIR -reset-password [-user admin]` 离线重置密码（运行中的面板会自动读到新密码）。
 
-从 CI 的构建产物（Actions → 最新一次运行 → Artifacts）下载对应架构的二进制，或自行交叉编译，然后在服务器上：
+用自己编译的程序安装为服务：`sudo ./install.sh install --local bin/gpanel`。systemd unit 内嵌在程序里（`gpanel -print-systemd-unit`），安装和更新时写入与程序版本匹配的 unit。unit 使用 `KillMode=mixed`，保证关机时由面板逐个优雅停止实例，而不是 systemd 同时给所有进程发 SIGTERM。
+
+## 发布新版本
 
 ```bash
-sudo deploy/install.sh ./gpanel-linux-amd64
+git tag v0.2.0 && git push origin v0.2.0
 ```
 
-脚本会：创建系统用户 `gpanel`，安装 `/usr/local/bin/gpanel`、`/etc/systemd/system/gpanel.service`，首次安装时写入 `/etc/gpanel/gpanel.env` 并打印 `admin` 初始密码。数据目录为 `/var/lib/gpanel`，游戏服务器也以 `gpanel` 用户运行。
-
-- 修改监听地址、Java 镜像：编辑 `/etc/gpanel/gpanel.env` 后 `sudo systemctl restart gpanel`。
-- 升级：用新二进制再次运行 `install.sh`，配置和数据保留。
-- **重启或升级面板会停止正在运行的游戏服务器**（先发停止命令，超时后强制结束），勾选了「自动启动」的实例会随面板恢复。unit 使用 `KillMode=mixed`，保证关机时由面板逐个优雅停止实例，而不是 systemd 同时给所有进程发 SIGTERM。
-- 日志：`sudo journalctl -u gpanel -f`
+`.github/workflows/release.yml` 会测试、为 5 个平台编译（版本号写入程序）、生成 `SHA256SUMS`，并连同 `install.sh` 发布到 GitHub Releases。已安装的服务器运行 `sudo gpanel-ctl update` 即可升级，菜单顶部也会提示有新版本。
 
 ## 开发与测试
 
@@ -45,7 +101,7 @@ scripts/smoke.sh bin/gpanel                  # 端到端冒烟测试（macOS / L
 SMOKE_JAVA=1 scripts/smoke.sh bin/gpanel     # 额外真实安装并运行一个 Temurin JRE
 ```
 
-推送到任意分支都会触发 GitHub Actions（`.github/workflows/ci.yml`），在 Ubuntu 上执行：gofmt / vet / 带竞态检测的单元测试、含真实 Java 安装的冒烟测试、用 `deploy/install.sh` 在真实 systemd 下安装并验证（`scripts/systemd-smoke.sh`），以及 5 个平台的交叉编译（产物保留 7 天）。
+推送到任意分支都会触发 GitHub Actions（`.github/workflows/ci.yml`），在 Ubuntu 上执行：gofmt / vet / 带竞态检测的单元测试、含真实 Java 安装的冒烟测试、shellcheck、在真实 systemd 下用 `install.sh` 走完安装 → 重置密码 → 更新 → 坏版本自动回滚 → 手动回滚 → 从发布包下载并校验 → 备份 → 卸载的全流程（`scripts/systemd-smoke.sh`），以及 5 个平台的交叉编译（产物保留 7 天）。
 
 ## 目录结构
 
@@ -63,7 +119,8 @@ internal/
   system/            主机配置与负载采样（概览页），按进程组统计实例 CPU / 内存
   certs/             面板自身的 HTTPS 证书管理；同一端口同时服务 HTTP 和 HTTPS
 web/static/          前端（Vue 3 + xterm.js，无构建步骤）
-deploy/              systemd unit、环境变量模板、安装/升级脚本
+deploy/              systemd unit 与环境变量模板（内嵌进程序）
+install.sh           一键安装与维护工具（安装后为 gpanel-ctl）
 scripts/             冒烟测试（smoke.sh、systemd-smoke.sh）
 .github/workflows/   CI
 data/                运行时数据：users.json、instances.json、instances/<id>/、runtimes/java/

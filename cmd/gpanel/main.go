@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"gpanel/deploy"
 	"gpanel/internal/auth"
 	"gpanel/internal/certs"
 	"gpanel/internal/config"
@@ -22,11 +24,33 @@ import (
 	"gpanel/web"
 )
 
+// version is set at build time: -ldflags "-X main.version=v1.2.3".
+var version = "dev"
+
 func main() {
 	cfg := config.Load()
+	switch {
+	case cfg.ShowVersion:
+		fmt.Println(version)
+		return
+	case cfg.PrintUnit:
+		fmt.Print(deploy.SystemdUnit)
+		return
+	case cfg.PrintEnv:
+		fmt.Print(deploy.EnvTemplate)
+		return
+	case cfg.ResetPassword:
+		pw, err := auth.ResetPassword(cfg.Path("users.json"), cfg.User)
+		if err != nil {
+			log.Fatalf("重置密码失败: %v", err)
+		}
+		fmt.Println(pw)
+		return
+	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		log.Fatal(err)
 	}
+	log.Printf("GPanel %s", version)
 
 	bus := events.NewBus()
 
@@ -77,7 +101,7 @@ func main() {
 	}
 	instances.AddLaunchHook(rts.LaunchHook())
 
-	monitor := system.NewMonitor(cfg.DataDir, func() map[string]int {
+	monitor := system.NewMonitor(cfg.DataDir, version, func() map[string]int {
 		pids := map[string]int{}
 		for _, s := range instances.List() {
 			if s.Pid > 0 {

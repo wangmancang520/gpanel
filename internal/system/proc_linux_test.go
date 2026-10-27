@@ -52,7 +52,7 @@ func TestCPUTimesAndMemInfo(t *testing.T) {
 
 func TestMonitorReportsOwnProcessGroup(t *testing.T) {
 	pgid := syscall.Getpgrp()
-	m := NewMonitor(t.TempDir(), func() map[string]int { return map[string]int{"self": pgid} })
+	m := NewMonitor(t.TempDir(), "test", func() map[string]int { return map[string]int{"self": pgid} })
 	// A history point needs the CPU tick counters to advance between two
 	// samples, which may take a few milliseconds on an idle machine.
 	var s Snapshot

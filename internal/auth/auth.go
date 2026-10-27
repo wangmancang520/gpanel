@@ -10,6 +10,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -72,6 +73,40 @@ func New(usersPath string) (*Service, error) {
 	return s, nil
 }
 
+// ResetPassword sets a new random password for username in the users file
+// at usersPath (creating the account if it is missing) and returns it. Used by
+// "gpanel -reset-password"; a running panel notices the change on its next
+// request and ends all sessions.
+func ResetPassword(usersPath, username string) (string, error) {
+	users, err := store.Open[User](usersPath)
+	if err != nil {
+		return "", err
+	}
+	if _, ok := users.Get(username); !ok && username != "admin" {
+		return "", fmt.Errorf("用户 %s 不存在", username)
+	}
+	s := &Service{users: users}
+	pw := randomHex(8)
+	return pw, s.setPassword(username, pw)
+}
+
+// refreshUsers reloads the users file if it was edited outside this process
+// (a password reset from the command line) and then ends every session, so
+// whoever was logged in with the old password is out.
+func (s *Service) refreshUsers() {
+	changed, err := s.users.Refresh()
+	if err != nil {
+		log.Printf("重新读取用户文件失败: %v", err)
+		return
+	}
+	if changed {
+		s.mu.Lock()
+		clear(s.sessions)
+		s.mu.Unlock()
+		log.Printf("用户文件已在外部修改（如重置密码），已退出所有登录会话")
+	}
+}
+
 func (s *Service) setPassword(username, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -96,6 +131,7 @@ func (s *Service) checkPassword(username, password string) bool {
 }
 
 func (s *Service) login(ip, username, password string) (string, error) {
+	s.refreshUsers()
 	s.mu.Lock()
 	recent := s.failures[ip][:0]
 	for _, t := range s.failures[ip] {
@@ -130,6 +166,7 @@ func (s *Service) userFor(r *http.Request) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	s.refreshUsers() // one stat per request
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	sess, ok := s.sessions[c.Value]

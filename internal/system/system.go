@@ -34,6 +34,7 @@ type Host struct {
 	SwapTotal uint64    `json:"swapTotal"`
 	BootTime  time.Time `json:"bootTime,omitzero"`
 	GoVersion string    `json:"goVersion"`
+	Version   string    `json:"version"`   // GPanel's own
 	StartedAt time.Time `json:"startedAt"` // panel process start
 	DataDir   string    `json:"dataDir"`
 }
@@ -87,10 +88,10 @@ type Monitor struct {
 	prevGroup map[int]uint64 // pgid -> CPU ticks at the last sample
 }
 
-func NewMonitor(dataDir string, pids func() map[string]int) *Monitor {
+func NewMonitor(dataDir, version string, pids func() map[string]int) *Monitor {
 	h := Host{
 		OS: runtime.GOOS, Arch: runtime.GOARCH, CPUCores: runtime.NumCPU(),
-		GoVersion: runtime.Version(), StartedAt: time.Now(), DataDir: dataDir,
+		GoVersion: runtime.Version(), Version: version, StartedAt: time.Now(), DataDir: dataDir,
 	}
 	h.Hostname, _ = os.Hostname()
 	hostInfo(&h)
