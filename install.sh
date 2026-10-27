@@ -153,14 +153,26 @@ env_set() { # env_set KEY VALUE  (empty VALUE comments the key out)
 addr() { local a; a="$(env_get GPANEL_ADDR)"; echo "${a:-127.0.0.1:$DEFAULT_PORT}"; }
 port_of() { echo "${1##*:}"; }
 
-# URLs to show: every non-loopback IPv4 when listening on all interfaces.
+# Global IPv4 addresses, skipping container/VM bridges (docker0, br-…, veth…)
+# that nobody browses to; all of them if that leaves none.
+host_ips() {
+  local all real
+  if have ip; then
+    all="$(ip -4 -o addr show scope global 2>/dev/null | awk '{sub(/@.*/, "", $2); sub(/\/.*/, "", $4); print $2, $4}')"
+    real="$(awk '$1 !~ /^(docker|br-|veth|virbr|cni|flannel|cali|vxlan|lxcbr|lxdbr|podman|kube-)/' <<<"$all")"
+    awk '{print $2}' <<<"${real:-$all}"
+  else
+    hostname -I 2>/dev/null | tr ' ' '\n' | grep -v ':' || true
+  fi
+}
+
+# URLs to show: the host's addresses when listening on all interfaces.
 panel_urls() {
   local a host port scheme=http ip
   a="$(addr)" host="${a%:*}" port="$(port_of "$a")"
   [ -f "$DATA/tls/settings.json" ] && grep -q '"enabled": *true' "$DATA/tls/settings.json" && scheme="http(s)"
   if [ "$host" = "0.0.0.0" ] || [ -z "$host" ] || [ "$host" = "[::]" ]; then
-    for ip in $(hostname -I 2>/dev/null || ip -4 -o addr show scope global 2>/dev/null | awk '{sub(/\/.*/, "", $4); print $4}' || true); do
-      [[ "$ip" == *:* ]] && continue
+    for ip in $(host_ips); do
       echo "$scheme://$ip:$port"
     done
   else
