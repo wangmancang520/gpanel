@@ -92,10 +92,29 @@ export const Dashboard = {
     const memPoints = computed(() => (sys.value?.history || []).map((s) => ({ t: s.t, v: s.mem })));
     const usage = (id) => sys.value?.instances?.[id];
 
+    // Per logical CPU: current load and the history, one series per core.
+    const CORE_LIMIT = 64;
+    const allCores = ref(false);
+    const cores = computed(() => sys.value?.load.cores || []);
+    const coreSeries = computed(() => {
+      const hist = (sys.value?.history || []).filter((s) => s.cores?.length === cores.value.length);
+      return cores.value.map((_, i) => hist.map((s) => ({ t: s.t, v: s.cores[i] })));
+    });
+    const shownCores = computed(() => (allCores.value ? cores.value : cores.value.slice(0, CORE_LIMIT)));
+    const busiest = computed(() => {
+      let i = -1;
+      cores.value.forEach((v, j) => { if (i < 0 || v > cores.value[i]) i = j; });
+      return i < 0 ? null : { i, v: cores.value[i] };
+    });
+    // Cores near full load matter for game servers: their main thread
+    // usually runs on one core, which the overall average hides.
+    const hot = (v) => v >= 90;
+
     const stop = (inst) => attempt(async () => { await api('POST', `/api/instances/${inst.id}/stop`); await load(); });
 
     return {
       sys, instances, running, crashed, cpuPoints, memPoints, usage, stop, now,
+      cores, coreSeries, shownCores, allCores, busiest, hot, CORE_LIMIT,
       pct, fmtPct, formatSize, formatDuration, stateLabels,
     };
   },
@@ -110,6 +129,7 @@ export const Dashboard = {
           <div class="tile-label"><Icon name="cpu" />CPU</div>
           <div class="tile-value">{{ fmtPct(sys.load.cpu) }}</div>
           <div class="muted small">负载 {{ sys.load.load1.toFixed(2) }} / {{ sys.load.load5.toFixed(2) }} / {{ sys.load.load15.toFixed(2) }}</div>
+          <div v-if="busiest" class="small" :class="hot(busiest.v) ? 'hot-text' : 'muted'">最高单核 {{ fmtPct(busiest.v) }}<span class="muted">（#{{ busiest.i }}）</span></div>
           <Sparkline :points="cpuPoints" :max="100" :format="fmtPct" label="最近 3 分钟 CPU 使用率" />
         </section>
         <section class="card tile rise" style="--i: 1" v-if="sys.supported">
@@ -136,7 +156,26 @@ export const Dashboard = {
         </section>
       </div>
 
-      <section class="card rise" style="--i: 4">
+      <section class="card rise cores-card" style="--i: 4" v-if="cores.length">
+        <header class="cores-head">
+          <h2><Icon name="cpu" />CPU 核心</h2>
+          <span class="muted small">{{ cores.length }} 个逻辑处理器 · 最近 3 分钟 · 纵轴 0–100%</span>
+        </header>
+        <div class="cores" :class="{ dense: cores.length > 32 }">
+          <div v-for="(v, i) in shownCores" :key="i" class="core" :class="{ hot: hot(v) }">
+            <div class="core-head">
+              <span class="muted">#{{ i }}</span>
+              <span class="core-val">{{ fmtPct(v) }}</span>
+            </div>
+            <Sparkline :points="coreSeries[i]" :max="100" :format="fmtPct" :label="'核心 ' + i + ' 使用率'" />
+          </div>
+        </div>
+        <button v-if="cores.length > CORE_LIMIT" class="link small" @click="allCores = !allCores">
+          {{ allCores ? '收起' : '显示全部 ' + cores.length + ' 个' }}
+        </button>
+      </section>
+
+      <section class="card rise" style="--i: 5">
         <h2>运行中的实例</h2>
         <div v-if="!running.length" class="empty"><Icon name="server" :size="32" /><p>没有正在运行的实例。<a href="#/instances">去启动一个</a></p></div>
         <div v-else class="table-scroll"><table class="table">
@@ -160,7 +199,7 @@ export const Dashboard = {
         </table></div>
       </section>
 
-      <section class="card rise" style="--i: 5">
+      <section class="card rise" style="--i: 6">
         <h2>系统信息</h2>
         <dl class="facts">
           <dt>主机名</dt><dd>{{ sys.host.hostname || '—' }}</dd>

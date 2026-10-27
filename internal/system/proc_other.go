@@ -8,7 +8,7 @@ const supported = false
 
 func hostInfo(h *Host) {}
 
-func cpuTimes() (total, idle uint64, ok bool) { return 0, 0, false }
+func cpuTimes() (all cpuTick, cores []cpuTick, ok bool) { return cpuTick{}, nil, false }
 
 func memInfo() (memStats, bool) { return memStats{}, false }
 

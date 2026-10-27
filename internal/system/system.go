@@ -8,6 +8,7 @@ package system
 
 import (
 	"context"
+	"math"
 	"net/http"
 	"os"
 	"runtime"
@@ -38,21 +39,23 @@ type Host struct {
 }
 
 type Load struct {
-	CPU       float64 `json:"cpu"` // percent of all CPUs, 0-100
-	Load1     float64 `json:"load1"`
-	Load5     float64 `json:"load5"`
-	Load15    float64 `json:"load15"`
-	MemUsed   uint64  `json:"memUsed"` // total minus available
-	MemTotal  uint64  `json:"memTotal"`
-	SwapUsed  uint64  `json:"swapUsed"`
-	SwapTotal uint64  `json:"swapTotal"`
-	DiskUsed  uint64  `json:"diskUsed"` // filesystem holding the data dir
-	DiskTotal uint64  `json:"diskTotal"`
+	CPU       float64   `json:"cpu"`   // percent of all CPUs, 0-100
+	Cores     []float64 `json:"cores"` // per logical CPU, 0-100
+	Load1     float64   `json:"load1"`
+	Load5     float64   `json:"load5"`
+	Load15    float64   `json:"load15"`
+	MemUsed   uint64    `json:"memUsed"` // total minus available
+	MemTotal  uint64    `json:"memTotal"`
+	SwapUsed  uint64    `json:"swapUsed"`
+	SwapTotal uint64    `json:"swapTotal"`
+	DiskUsed  uint64    `json:"diskUsed"` // filesystem holding the data dir
+	DiskTotal uint64    `json:"diskTotal"`
 }
 
 type Sample struct {
 	Time    time.Time `json:"t"`
 	CPU     float64   `json:"cpu"`
+	Cores   []float64 `json:"cores,omitempty"`
 	MemUsed uint64    `json:"mem"`
 }
 
@@ -79,8 +82,8 @@ type Monitor struct {
 
 	mu        sync.RWMutex
 	snap      Snapshot
-	prevTotal uint64         // CPU ticks across all CPUs at the last sample
-	prevIdle  uint64         // idle + iowait ticks at the last sample
+	prev      cpuTick        // all CPUs at the last sample
+	prevCores []cpuTick      // per logical CPU at the last sample
 	prevGroup map[int]uint64 // pgid -> CPU ticks at the last sample
 }
 
@@ -140,14 +143,21 @@ func (m *Monitor) sample() {
 		pgids = append(pgids, pid)
 	}
 	groups := groupUsage(pgids)
-	total, idle, cpuOK := cpuTimes()
+	all, cores, cpuOK := cpuTimes()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	dTotal := total - m.prevTotal
-	primed := m.prevTotal != 0 && cpuOK && total > m.prevTotal
+	dTotal := all.total - m.prev.total
+	primed := m.prev.total != 0 && cpuOK && all.total > m.prev.total
 	if primed {
-		load.CPU = percent(dTotal-min(idle-m.prevIdle, dTotal), dTotal)
+		load.CPU = busy(all, m.prev)
+		// CPUs going on/offline change the count; skip one round then.
+		if len(cores) == len(m.prevCores) {
+			load.Cores = make([]float64, len(cores))
+			for i, c := range cores {
+				load.Cores[i] = round1(busy(c, m.prevCores[i]))
+			}
+		}
 	}
 	instances := map[string]Usage{}
 	prevGroup := map[int]uint64{}
@@ -166,7 +176,7 @@ func (m *Monitor) sample() {
 		prevGroup[pid] = g.ticks
 	}
 	if cpuOK {
-		m.prevTotal, m.prevIdle = total, idle
+		m.prev, m.prevCores = all, cores
 	}
 	m.prevGroup = prevGroup
 
@@ -176,12 +186,24 @@ func (m *Monitor) sample() {
 		m.snap.Host.MemTotal, m.snap.Host.SwapTotal = load.MemTotal, load.SwapTotal
 	}
 	if primed {
-		m.snap.History = append(m.snap.History, Sample{Time: time.Now(), CPU: load.CPU, MemUsed: load.MemUsed})
+		m.snap.History = append(m.snap.History, Sample{Time: time.Now(), CPU: load.CPU, Cores: load.Cores, MemUsed: load.MemUsed})
 		if n := len(m.snap.History); n > historyLen {
 			m.snap.History = append(m.snap.History[:0:0], m.snap.History[n-historyLen:]...)
 		}
 	}
 }
+
+// busy is the non-idle share of the ticks elapsed between prev and cur.
+func busy(cur, prev cpuTick) float64 {
+	if cur.total <= prev.total {
+		return 0
+	}
+	d := cur.total - prev.total
+	return percent(d-min(cur.idle-prev.idle, d), d)
+}
+
+// round1 keeps one decimal: per-core history is sent every poll.
+func round1(v float64) float64 { return math.Round(v*10) / 10 }
 
 func percent(part, whole uint64) float64 {
 	if whole == 0 {
@@ -197,6 +219,8 @@ func (m *Monitor) Register(mux *http.ServeMux) {
 }
 
 type memStats struct{ total, available, swapTotal, swapFree uint64 }
+
+type cpuTick struct{ total, idle uint64 } // jiffies
 
 type groupStat struct {
 	ticks uint64 // user + system CPU time, in the same unit as cpuTimes

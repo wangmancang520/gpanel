@@ -61,27 +61,40 @@ func osRelease(path string) string {
 	return ""
 }
 
-// cpuTimes returns aggregate jiffies across all CPUs from /proc/stat.
-func cpuTimes() (total, idle uint64, ok bool) {
+// cpuTimes returns jiffies from /proc/stat: the aggregate over all CPUs and
+// one entry per logical CPU, in kernel order.
+func cpuTimes() (all cpuTick, cores []cpuTick, ok bool) {
 	b, err := os.ReadFile(procPath("stat"))
 	if err != nil {
-		return 0, 0, false
+		return all, nil, false
 	}
-	line, _, _ := strings.Cut(string(b), "\n")
-	fields := strings.Fields(line)
-	if len(fields) < 5 || fields[0] != "cpu" {
-		return 0, 0, false
-	}
-	// user nice system idle iowait irq softirq steal [guest guest_nice]
-	// guest time is already counted in user/nice, so stop before it.
-	for i, f := range fields[1:min(len(fields), 9)] {
-		v, _ := strconv.ParseUint(f, 10, 64)
-		total += v
-		if i == 3 || i == 4 { // idle, iowait
-			idle += v
+	for line := range strings.Lines(string(b)) {
+		fields := strings.Fields(line)
+		if len(fields) < 5 || !strings.HasPrefix(fields[0], "cpu") {
+			continue
+		}
+		t := parseCPU(fields[1:])
+		if fields[0] == "cpu" {
+			all, ok = t, true
+		} else {
+			cores = append(cores, t)
 		}
 	}
-	return total, idle, true
+	return all, cores, ok
+}
+
+// parseCPU sums "user nice system idle iowait irq softirq steal [guest
+// guest_nice]"; guest time is already counted in user/nice, so it stops there.
+func parseCPU(fields []string) cpuTick {
+	var t cpuTick
+	for i, f := range fields[:min(len(fields), 8)] {
+		v, _ := strconv.ParseUint(f, 10, 64)
+		t.total += v
+		if i == 3 || i == 4 { // idle, iowait
+			t.idle += v
+		}
+	}
+	return t
 }
 
 func memInfo() (memStats, bool) {
