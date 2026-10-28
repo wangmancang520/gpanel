@@ -10,7 +10,7 @@ type Handler struct{ r *Registry }
 
 func NewHandler(r *Registry) *Handler { return &Handler{r: r} }
 
-func (h *Handler) Register(mux *http.ServeMux) {
+func (h *Handler) Register(mux httpx.Router) {
 	mux.HandleFunc("GET /api/runtimes", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, h.r.List(r.URL.Query().Get("kind")))
 	})

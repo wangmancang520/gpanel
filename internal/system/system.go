@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"gpanel/internal/auth"
 	"gpanel/internal/httpx"
 )
 
@@ -213,9 +214,16 @@ func percent(part, whole uint64) float64 {
 	return float64(part) * 100 / float64(whole)
 }
 
-func (m *Monitor) Register(mux *http.ServeMux) {
+func (m *Monitor) Register(mux httpx.Router) {
 	mux.HandleFunc("GET /api/system", func(w http.ResponseWriter, r *http.Request) {
-		httpx.JSON(w, http.StatusOK, m.Snapshot())
+		s := m.Snapshot()
+		p := auth.From(r.Context())
+		for id := range s.Instances {
+			if !p.CanSee(id) {
+				delete(s.Instances, id) // only the caller's instances
+			}
+		}
+		httpx.JSON(w, http.StatusOK, s)
 	})
 }
 

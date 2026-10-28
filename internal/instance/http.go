@@ -10,6 +10,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"gpanel/internal/auth"
 	"gpanel/internal/events"
 	"gpanel/internal/httpx"
 )
@@ -18,7 +19,7 @@ type Handler struct{ m *Manager }
 
 func NewHandler(m *Manager) *Handler { return &Handler{m: m} }
 
-func (h *Handler) Register(mux *http.ServeMux) {
+func (h *Handler) Register(mux httpx.Router) {
 	mux.HandleFunc("GET /api/instances", h.list)
 	mux.HandleFunc("POST /api/instances", h.create)
 	mux.HandleFunc("GET /api/instances/{id}", h.get)
@@ -29,13 +30,31 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
-	httpx.JSON(w, http.StatusOK, h.m.List())
+	p := auth.From(r.Context())
+	out := []Status{}
+	for _, s := range h.m.List() {
+		if p.CanSee(s.ID) {
+			out = append(out, viewFor(p, s))
+		}
+	}
+	httpx.JSON(w, http.StatusOK, out)
+}
+
+// viewFor hides configuration plain users can't change and that may hold
+// secrets (environment variables such as RCON passwords, other modules'
+// settings).
+func viewFor(p *auth.Principal, s Status) Status {
+	if p.IsAdmin() {
+		return s
+	}
+	s.Env, s.Extensions = nil, nil
+	return s
 }
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	inst, ok := h.lookup(w, r)
 	if ok {
-		httpx.JSON(w, http.StatusOK, inst.Status())
+		httpx.JSON(w, http.StatusOK, viewFor(auth.From(r.Context()), inst.Status()))
 	}
 }
 
@@ -103,7 +122,7 @@ func (h *Handler) action(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, http.StatusConflict, err.Error())
 		return
 	}
-	httpx.JSON(w, http.StatusOK, inst.Status())
+	httpx.JSON(w, http.StatusOK, viewFor(auth.From(r.Context()), inst.Status()))
 }
 
 func (h *Handler) lookup(w http.ResponseWriter, r *http.Request) (*Instance, bool) {
@@ -146,12 +165,13 @@ func (h *Handler) terminal(w http.ResponseWriter, r *http.Request) {
 	history, out, detach := inst.Attach()
 	defer detach()
 
+	viewer := auth.From(r.Context())
 	id := inst.Config().ID
 	statusCh := make(chan Status, 8)
 	unsubscribe := h.m.bus.Subscribe(func(e events.Event) {
 		if e.Type == events.InstanceState && e.InstanceID == id {
 			select {
-			case statusCh <- e.Data.(Status):
+			case statusCh <- viewFor(viewer, e.Data.(Status)):
 			default:
 			}
 		}
@@ -193,7 +213,7 @@ func (h *Handler) terminal(w http.ResponseWriter, r *http.Request) {
 		return wsjson.Write(wctx, c, map[string]any{"type": "status", "data": s})
 	}
 
-	if writeStatus(inst.Status()) != nil || (len(history) > 0 && write(websocket.MessageBinary, history) != nil) {
+	if writeStatus(viewFor(viewer, inst.Status())) != nil || (len(history) > 0 && write(websocket.MessageBinary, history) != nil) {
 		return
 	}
 	for {

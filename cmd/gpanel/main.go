@@ -129,10 +129,19 @@ func main() {
 		issuer,
 	}
 	mux := http.NewServeMux()
+	router := auth.NewRouter(mux) // every API route goes through the access policy
 	for _, m := range modules {
-		m.Register(mux)
+		m.Register(router)
+	}
+	if unruled := router.Unruled(); len(unruled) > 0 {
+		log.Printf("以下接口没有在权限表中列出，默认仅管理员可用: %v", unruled)
 	}
 	mux.Handle("/", web.Handler(cfg.WebDir))
+	bus.Subscribe(func(e events.Event) {
+		if e.Type == events.InstanceDeleted {
+			go authSvc.ForgetInstance(e.InstanceID) // drop grants; not under the bus lock
+		}
+	})
 
 	srv := &http.Server{
 		Addr: cfg.Addr,

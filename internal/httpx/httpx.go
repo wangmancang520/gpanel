@@ -6,10 +6,17 @@ import (
 	"net/http"
 )
 
+// Router is where modules register routes. In the panel it is auth.Router,
+// which puts each route behind its rule in the central access policy.
+type Router interface {
+	HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request))
+}
+
 // Module is implemented by every feature package that exposes HTTP routes.
-// Adding a feature to the panel = write a Module and register it in main.
+// Adding a feature to the panel = write a Module, register it in main, and
+// give its routes a rule in auth/policy.go (otherwise they are admin-only).
 type Module interface {
-	Register(mux *http.ServeMux)
+	Register(mux Router)
 }
 
 func JSON(w http.ResponseWriter, status int, v any) {

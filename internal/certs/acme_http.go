@@ -25,7 +25,7 @@ func (is *Issuer) state() acmeState {
 	}
 }
 
-func (is *Issuer) Register(mux *http.ServeMux) {
+func (is *Issuer) Register(mux httpx.Router) {
 	reply := func(w http.ResponseWriter, err error) {
 		if err != nil {
 			httpx.Error(w, http.StatusBadRequest, err.Error())

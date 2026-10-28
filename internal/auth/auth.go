@@ -1,7 +1,7 @@
-// Package auth implements panel login with server-side sessions.
-//
-// Users are stored in a collection so multi-user / per-instance permissions
-// can be layered on later; today the first run creates a single "admin".
+// Package auth implements panel accounts: login with server-side sessions,
+// roles (superadmin, admin, user), per-instance grants for plain users, and
+// the access policy every API route goes through (policy.go). The first run
+// creates the superadmin "admin".
 package auth
 
 import (
@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -36,21 +38,14 @@ var ErrInvalidLogin = errors.New("用户名或密码错误")
 
 var dummyHash, _ = bcrypt.GenerateFromPassword([]byte("dummy"), bcrypt.DefaultCost)
 
-type User struct {
-	Username     string    `json:"username"`
-	PasswordHash []byte    `json:"passwordHash"`
-	CreatedAt    time.Time `json:"createdAt"`
-}
-
 type session struct {
 	username string
 	expires  time.Time
 }
 
-type ctxKey struct{}
-
 type Service struct {
-	users *store.Collection[User]
+	users  *store.Collection[User]
+	userMu sync.Mutex // serializes read-modify-write of accounts
 
 	mu       sync.Mutex
 	sessions map[string]session
@@ -65,10 +60,14 @@ func New(usersPath string) (*Service, error) {
 	s := &Service{users: users, sessions: map[string]session{}, failures: map[string][]time.Time{}}
 	if users.Len() == 0 {
 		pw := randomHex(8)
-		if err := s.setPassword("admin", pw); err != nil {
+		u := User{Username: "admin", Role: RoleSuper, CreatedAt: time.Now()}
+		if err := s.putPassword(&u, pw); err != nil {
 			return nil, err
 		}
 		log.Printf("首次启动：已创建管理员账号 admin，初始密码 %s（请登录后修改）", pw)
+	}
+	if err := s.migrateUsers(); err != nil {
+		return nil, err
 	}
 	return s, nil
 }
@@ -82,12 +81,18 @@ func ResetPassword(usersPath, username string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if _, ok := users.Get(username); !ok && username != "admin" {
-		return "", fmt.Errorf("用户 %s 不存在", username)
-	}
 	s := &Service{users: users}
+	u, ok := users.Get(username)
+	if !ok {
+		// Only the superadmin can be recreated this way, and only if gone.
+		if username != "admin" || slices.ContainsFunc(users.List(), func(u User) bool { return u.Role == RoleSuper }) {
+			return "", fmt.Errorf("用户 %s 不存在", username)
+		}
+		u = User{Username: username, Role: RoleSuper, CreatedAt: time.Now()}
+	}
 	pw := randomHex(8)
-	return pw, s.setPassword(username, pw)
+	u.MustChangePassword = false // whoever runs this as root is the owner
+	return pw, s.putPassword(&u, pw)
 }
 
 // refreshUsers reloads the users file if it was edited outside this process
@@ -107,17 +112,26 @@ func (s *Service) refreshUsers() {
 	}
 }
 
-func (s *Service) setPassword(username, password string) error {
+// putPassword hashes password into u and saves u.
+func (s *Service) putPassword(u *User, password string) error {
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
+	u.PasswordHash = hash
+	return s.users.Put(u.Username, *u)
+}
+
+// setPassword changes an existing user's own password.
+func (s *Service) setPassword(username, password string) error {
+	s.userMu.Lock()
+	defer s.userMu.Unlock()
 	u, ok := s.users.Get(username)
 	if !ok {
-		u = User{Username: username, CreatedAt: time.Now()}
+		return errNoUser
 	}
-	u.PasswordHash = hash
-	return s.users.Put(username, u)
+	u.MustChangePassword = false
+	return s.putPassword(&u, password)
 }
 
 func (s *Service) checkPassword(username, password string) bool {
@@ -151,6 +165,17 @@ func (s *Service) login(ip, username, password string) (string, error) {
 		s.failures[ip] = append(s.failures[ip], time.Now())
 		s.mu.Unlock()
 		return "", ErrInvalidLogin
+	}
+	s.userMu.Lock()
+	u, _ := s.users.Get(username)
+	if !u.Disabled {
+		now := time.Now()
+		u.LastLogin = &now
+		_ = s.users.Put(u.Username, u)
+	}
+	s.userMu.Unlock()
+	if u.Disabled {
+		return "", errors.New("账号已停用，请联系管理员")
 	}
 
 	token := randomHex(32)
@@ -194,9 +219,36 @@ func (s *Service) dropSessions(username, keep string) int {
 
 // Username returns the logged-in user stored on the request context by Middleware.
 func Username(ctx context.Context) string {
-	u, _ := ctx.Value(ctxKey{}).(string)
+	if p := From(ctx); p != nil {
+		return p.Username
+	}
+	return ""
+}
+
+// current returns the stored account of the request's principal.
+func (s *Service) current(r *http.Request) User {
+	u, _ := s.users.Get(Username(r.Context()))
 	return u
 }
+
+// principal loads the session's account fresh, so role changes, grants and
+// disabling apply to sessions that are already open.
+func (s *Service) principal(r *http.Request) (*Principal, User, bool) {
+	name, ok := s.userFor(r)
+	if !ok {
+		return nil, User{}, false
+	}
+	u, ok := s.users.Get(name)
+	if !ok || u.Disabled {
+		s.dropSessions(name, "")
+		return nil, User{}, false
+	}
+	return &Principal{Username: u.Username, Role: u.Role, Instances: maps.Clone(u.Instances)}, u, true
+}
+
+// mustChangeAllowed are the only routes for an account that has to pick a
+// new password first.
+var mustChangeAllowed = []string{"/api/auth/me", "/api/auth/password", "/api/auth/logout"}
 
 // Middleware requires a valid session for every /api/ route except login/status,
 // and rejects cross-origin state-changing requests.
@@ -210,20 +262,30 @@ func (s *Service) Middleware(next http.Handler) http.Handler {
 			httpx.Error(w, http.StatusForbidden, "跨站请求被拒绝")
 			return
 		}
-		if r.URL.Path == "/api/auth/login" || r.URL.Path == "/api/auth/me" {
+		if r.URL.Path == "/api/auth/login" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		user, ok := s.userFor(r)
+		p, u, ok := s.principal(r)
 		if !ok {
+			if r.URL.Path == "/api/auth/me" {
+				next.ServeHTTP(w, r) // answers 401 itself
+				return
+			}
 			httpx.Error(w, http.StatusUnauthorized, "未登录")
 			return
 		}
-		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, user)))
+		if u.MustChangePassword && !slices.Contains(mustChangeAllowed, r.URL.Path) {
+			httpx.JSON(w, http.StatusForbidden, map[string]any{"error": "请先修改密码", "mustChangePassword": true})
+			return
+		}
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), principalKey{}, p)))
 	})
 }
 
-func (s *Service) Register(mux *http.ServeMux) {
+func (s *Service) Register(mux httpx.Router) {
+	s.registerUsers(mux)
+
 	mux.HandleFunc("POST /api/auth/login", func(w http.ResponseWriter, r *http.Request) {
 		var req struct{ Username, Password string }
 		if err := httpx.Decode(r, &req); err != nil {
@@ -240,7 +302,8 @@ func (s *Service) Register(mux *http.ServeMux) {
 			HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil,
 			MaxAge: int(sessionTTL.Seconds()),
 		})
-		httpx.JSON(w, http.StatusOK, map[string]string{"username": req.Username})
+		u, _ := s.users.Get(req.Username)
+		httpx.JSON(w, http.StatusOK, s.me(u))
 	})
 
 	mux.HandleFunc("POST /api/auth/logout", func(w http.ResponseWriter, r *http.Request) {
@@ -254,12 +317,12 @@ func (s *Service) Register(mux *http.ServeMux) {
 	})
 
 	mux.HandleFunc("GET /api/auth/me", func(w http.ResponseWriter, r *http.Request) {
-		user, ok := s.userFor(r)
+		_, u, ok := s.principal(r)
 		if !ok {
 			httpx.Error(w, http.StatusUnauthorized, "未登录")
 			return
 		}
-		httpx.JSON(w, http.StatusOK, map[string]string{"username": user})
+		httpx.JSON(w, http.StatusOK, s.me(u))
 	})
 
 	mux.HandleFunc("POST /api/auth/password", func(w http.ResponseWriter, r *http.Request) {
@@ -287,6 +350,18 @@ func (s *Service) Register(mux *http.ServeMux) {
 		}
 		httpx.JSON(w, http.StatusOK, map[string]int{"loggedOut": s.dropSessions(user, current)})
 	})
+}
+
+// me is what the browser learns about its own account.
+func (s *Service) me(u User) map[string]any {
+	inst := u.Instances
+	if inst == nil {
+		inst = map[string]Perms{}
+	}
+	return map[string]any{
+		"username": u.Username, "role": u.Role,
+		"mustChangePassword": u.MustChangePassword, "instances": inst,
+	}
 }
 
 func sameOrigin(r *http.Request) bool {

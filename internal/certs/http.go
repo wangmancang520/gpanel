@@ -6,7 +6,7 @@ import (
 	"gpanel/internal/httpx"
 )
 
-func (m *Manager) Register(mux *http.ServeMux) {
+func (m *Manager) Register(mux httpx.Router) {
 	mux.HandleFunc("GET /api/system/tls", func(w http.ResponseWriter, r *http.Request) {
 		httpx.JSON(w, http.StatusOK, m.Status())
 	})

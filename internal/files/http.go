@@ -27,7 +27,7 @@ func NewHandler(prefix string, roots RootFunc) *Handler {
 	return &Handler{prefix: prefix, roots: roots}
 }
 
-func (h *Handler) Register(mux *http.ServeMux) {
+func (h *Handler) Register(mux httpx.Router) {
 	p := h.prefix + "/{id}/files"
 	mux.HandleFunc("GET "+p, h.with(h.list))
 	mux.HandleFunc("GET "+p+"/content", h.with(h.read))
