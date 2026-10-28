@@ -1,20 +1,21 @@
-import { api, attempt, stateLabels } from '../api.js';
+import { api, attempt, stateLabels, isAdmin, grant } from '../api.js';
 import { TerminalPane } from './terminal.js';
 import { FileManager } from './files.js';
 import { InstanceForm } from './instance-form.js';
 
-// Instance detail page. Add a tab: one entry in `tabs` + one v-if branch.
+// Instance detail page. Add a tab: one entry in `tabs` + one v-if branch;
+// `can` says who sees it (the server enforces the same rules).
 const tabs = [
-  { key: 'terminal', label: '终端', icon: 'terminal' },
-  { key: 'files', label: '文件', icon: 'folder' },
-  { key: 'settings', label: '设置', icon: 'sliders' },
+  { key: 'terminal', label: '终端', icon: 'terminal', can: (g) => g.console },
+  { key: 'files', label: '文件', icon: 'folder', can: (g) => g.files },
+  { key: 'settings', label: '设置', icon: 'sliders', can: () => isAdmin() },
 ];
 
 export const InstanceDetail = {
   components: { TerminalPane, FileManager, InstanceForm },
   props: { id: String, tab: String },
   setup(props) {
-    const { ref, onMounted, onUnmounted } = Vue;
+    const { ref, computed, watchEffect, onMounted, onUnmounted } = Vue;
     const inst = ref(null);
     const deleteFiles = ref(false);
     const load = async () => {
@@ -37,7 +38,15 @@ export const InstanceDetail = {
     };
     const onStatus = (s) => { inst.value = s; };
     const running = () => inst.value && ['running', 'starting', 'stopping'].includes(inst.value.state);
-    return { inst, tabs, act, remove, onStatus, running, deleteFiles, stateLabels, load };
+    const g = computed(() => grant(props.id));
+    const visibleTabs = computed(() => tabs.filter((t) => t.can(g.value)));
+    // A tab the account can't use (e.g. the default terminal for files-only
+    // users) jumps to the first one it can.
+    watchEffect(() => {
+      const keys = visibleTabs.value.map((t) => t.key);
+      if (keys.length && !keys.includes(props.tab)) location.replace(`#/instances/${props.id}/${keys[0]}`);
+    });
+    return { inst, tabs: visibleTabs, g, isAdmin, act, remove, onStatus, running, deleteFiles, stateLabels, load };
   },
   template: `
     <div class="page detail" v-if="inst">
@@ -48,7 +57,7 @@ export const InstanceDetail = {
           <span class="badge" :class="inst.state">{{ stateLabels[inst.state] }}</span>
           <span v-if="inst.pid" class="muted small">PID {{ inst.pid }}</span>
         </div>
-        <div class="row">
+        <div class="row" v-if="g.console">
           <button v-if="!running()" class="primary" @click="act('start')"><Icon name="play" />启动</button>
           <button v-if="running()" @click="act('stop')" :disabled="inst.state === 'stopping'"><Icon name="stop" />停止</button>
           <button @click="act('restart')"><Icon name="restart" />重启</button>
@@ -62,9 +71,9 @@ export const InstanceDetail = {
         </a>
       </nav>
       <Transition name="page" mode="out-in">
-      <TerminalPane v-if="tab === 'terminal'" :id="id" @status="onStatus" />
-      <FileManager v-else-if="tab === 'files'" :id="id" />
-      <div v-else-if="tab === 'settings'" class="card">
+      <TerminalPane v-if="tab === 'terminal' && g.console" :id="id" @status="onStatus" />
+      <FileManager v-else-if="tab === 'files' && g.files" :id="id" />
+      <div v-else-if="tab === 'settings' && isAdmin()" class="card">
         <InstanceForm :initial="inst" :key="inst.id" @saved="load" />
         <hr>
         <div class="row">

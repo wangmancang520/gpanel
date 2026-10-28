@@ -1,4 +1,4 @@
-import { api, attempt, stateLabels, formatSize } from '../api.js';
+import { api, attempt, stateLabels, formatSize, grant } from '../api.js';
 
 // Home page: host configuration, live load and the running instances.
 // Data comes from /api/system (sampled every 2s server-side) and /api/instances.
@@ -115,7 +115,7 @@ export const Dashboard = {
     return {
       sys, instances, running, crashed, cpuPoints, memPoints, usage, stop, now,
       cores, coreSeries, shownCores, allCores, busiest, hot, CORE_LIMIT,
-      pct, fmtPct, formatSize, formatDuration, stateLabels,
+      pct, fmtPct, formatSize, formatDuration, stateLabels, grant,
     };
   },
   template: `
@@ -191,8 +191,10 @@ export const Dashboard = {
                 <span v-if="usage(it.id)?.procs > 1" class="muted small" :title="usage(it.id).procs + ' 个进程'">×{{ usage(it.id).procs }}</span>
               </td>
               <td class="actions">
-                <a :href="'#/instances/' + it.id + '/terminal'"><Icon name="terminal" :size="14" />控制台</a>
-                <a href="" v-if="it.state === 'running'" @click.prevent="stop(it)"><Icon name="stop" :size="14" />停止</a>
+                <template v-if="grant(it.id).console">
+                  <a :href="'#/instances/' + it.id + '/terminal'"><Icon name="terminal" :size="14" />控制台</a>
+                  <a href="" v-if="it.state === 'running'" @click.prevent="stop(it)"><Icon name="stop" :size="14" />停止</a>
+                </template>
               </td>
             </tr>
           </tbody>

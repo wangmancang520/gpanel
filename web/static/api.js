@@ -16,7 +16,11 @@ export async function api(method, url, body, { text = false } = {}) {
   }
   if (!res.ok) {
     let msg = res.statusText;
-    try { msg = (await res.json()).error || msg; } catch {}
+    try {
+      const body = await res.json();
+      msg = body.error || msg;
+      if (body.mustChangePassword && session.user) session.user.mustChangePassword = true;
+    } catch {}
     throw new Error(msg);
   }
   if (text) return res.text();
@@ -25,6 +29,20 @@ export async function api(method, url, body, { text = false } = {}) {
 }
 
 export const q = (params) => new URLSearchParams(params).toString();
+
+// The logged-in account ({ username, role, mustChangePassword, instances })
+// and what it may do. The server enforces all of this; the UI only hides
+// what would be refused anyway.
+export const session = Vue.reactive({ user: null });
+export const roleLabels = { superadmin: '超级管理员', admin: '管理员', user: '普通用户' };
+export const isAdmin = () => ['admin', 'superadmin'].includes(session.user?.role);
+export const isSuper = () => session.user?.role === 'superadmin';
+export const grant = (id) =>
+  isAdmin() ? { console: true, files: true } : { console: false, files: false, ...(session.user?.instances?.[id] || {}) };
+export async function refreshSession() {
+  try { session.user = await api('GET', '/api/auth/me'); } catch { session.user = null; }
+  return session.user;
+}
 
 // Simple global toast store shared by all views.
 export const toasts = Vue.reactive([]);

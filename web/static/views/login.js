@@ -17,7 +17,7 @@ export const LoginView = {
       shake.value = false;
       try {
         const r = await api('POST', '/api/auth/login', { username: username.value, password: password.value });
-        emit('login', r.username);
+        emit('login', r); // the account: username, role, grants
       } catch (e) {
         error.value = e.message;
         requestAnimationFrame(() => (shake.value = true));

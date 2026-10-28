@@ -710,3 +710,21 @@ textarea.pem { font-size: 11.5px; resize: vertical; min-height: 140px; }
     transition-duration: .01ms !important;
   }
 }
+
+/* ---- users */
+.sidebar-foot .user small { display: block; font-weight: 400; font-size: 11px; line-height: 1.2; }
+.avatar.sm { display: inline-grid; width: 24px; height: 24px; font-size: 12px; margin-right: 8px; vertical-align: middle; }
+.badge.role-superadmin { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.badge.role-admin { color: var(--accent); background: color-mix(in srgb, var(--accent) 13%, transparent); }
+.badge[class*="role-"]::before { display: none; }
+.table tr.dim td { opacity: .55; }
+.grant-cell { max-width: 220px; }
+.grant-list { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-sm); max-height: 280px; overflow: auto; }
+.grant-row { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; padding: 8px 12px; }
+.grant-row + .grant-row { border-top: 1px solid var(--border); }
+.grant-row .ellipsis { display: flex; align-items: center; gap: 6px; }
+code.secret { font-size: 18px; letter-spacing: .04em; padding: 8px 12px; background: var(--surface-2); border-radius: var(--radius-sm); user-select: all; }
+.force-password { max-width: 560px; display: flex; flex-direction: column; gap: 12px; }
+@media (max-width: 640px) {
+  .grant-row { grid-template-columns: 1fr; gap: 4px; }
+}

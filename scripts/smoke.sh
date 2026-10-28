@@ -135,6 +135,23 @@ if [ "${SMOKE_NETWORK:-1}" != 0 ]; then
   fi
 fi
 
+# --- accounts: a plain user sees and does only what was granted
+check "管理员创建普通用户"    'c -X POST $B/api/users -d "{\"username\":\"smoke-user\",\"role\":\"user\",\"password\":\"smoke-user-1\",\"instances\":{\"$ID\":{\"console\":true}}}" | grep -q "\"mustChangePassword\":true"'
+JU="$WORK/cookies-user"
+u() { curl -s -b "$JU" -c "$JU" "$@"; }
+u -X POST $B/api/auth/login -d '{"username":"smoke-user","password":"smoke-user-1"}' >/dev/null
+check "新用户须先改密码"      'u $B/api/instances | grep -q mustChangePassword'
+u -X POST $B/api/auth/password -d '{"oldPassword":"smoke-user-1","newPassword":"smoke-user-2"}' >/dev/null
+check "只看到被分配的实例"    '[ "$(u $B/api/instances | grep -o "\"id\":\"[^\"]*\"" | sort -u | tr -d "\n")" = "\"id\":\"$ID\"" ]'
+check "看不到环境变量"        '! u $B/api/instances/$ID | grep -q "\"env\":{"'
+check "有控制台权限可操作"    '[ "$(u -o /dev/null -w %{http_code} -X POST $B/api/instances/$ID/stop)" != 403 ]'
+check "无文件权限被拒"        '[ "$(u -o /dev/null -w %{http_code} "$F?path=/")" = 403 ]'
+check "不能新建实例"          '[ "$(u -o /dev/null -w %{http_code} -X POST $B/api/instances -d "{}")" = 403 ]'
+check "不能管理用户"          '[ "$(u -o /dev/null -w %{http_code} $B/api/users)" = 403 ]'
+c -X PUT $B/api/users/smoke-user -d '{"disabled":true}' >/dev/null
+check "停用后会话立即失效"    '[ "$(u -o /dev/null -w %{http_code} $B/api/auth/me)" = 401 ]'
+check "删除用户"              'c -X DELETE $B/api/users/smoke-user | grep -q ok'
+
 # --- HTTPS on the same port, and password changes
 S="https://127.0.0.1:$PORT"
 check "未启用时拒绝 HTTPS"    '! curl -sk -o /dev/null $S/'

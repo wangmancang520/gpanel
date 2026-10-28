@@ -89,6 +89,23 @@ sudo gpanel-ctl migrate-gsmanager      # 或菜单中的「从 GSManager 迁移�
 - **迁移前请先在 GSManager 中停止正在运行的服务器**，让它们正常保存。GSManager 不会被卸载、配置也不会改动；可以重复运行，已迁移的实例会跳过。
 - 安装目录不是默认的 `/opt/gsmanager3` 且没有 `gsm3` 服务时，用 `--gsm-dir` 指定。
 
+## 用户与权限
+
+「用户」页管理的是**可以登录本面板的账号**，不是游戏服务器的白名单。
+
+| 角色 | 能做什么 |
+|---|---|
+| 超级管理员 | 首次安装创建的 `admin`，只有一个、不能被删除或降级。管理所有账号（包括任命管理员），以及面板的 HTTPS 证书与 DNS 密钥 |
+| 管理员 | 访问全部实例、新建和设置实例、管理 Java 运行时；管理普通用户（不能管理其他管理员） |
+| 普通用户 | 只能看到分配给他的实例，并按实例勾选权限：「控制台与启停」「文件管理」。实例的启动命令、Java、环境变量等设置只有管理员能改；看不到环境变量 |
+
+- 新建账号或重置密码时可以留空让面板生成随机密码，只显示一次；对方首次登录后必须修改密码。
+- 停用、删除、重置密码会让该账号立即退出登录；调整角色和实例权限对已登录的会话即时生效。删除实例时，相关授权一并清除。
+- 忘记密码：`sudo gpanel-ctl reset-password --user 用户名`。
+- 从旧版本升级时，原有的 `admin` 自动成为超级管理员，其他已有账号成为管理员（它们之前就拥有全部权限）。
+
+> **安全边界**：所有游戏服务器以同一个系统用户 `gpanel` 运行。拥有某个实例「文件管理」权限的人可以修改服务器文件和模组，从而以 `gpanel` 身份执行任意代码、读写其他实例甚至面板数据。所以按实例授权是**组织上的划分，不是安全隔离**：只把文件权限授予你信任的人。只给「控制台与启停」相对安全（但也取决于游戏本身的控制台命令）。
+
 ## 从源码运行
 
 ```bash
@@ -139,7 +156,7 @@ internal/
   config/            启动参数
   store/             JSON 文件持久化（接口很窄，可换 SQLite）
   events/            进程内事件总线（实例状态变化等）
-  auth/              登录、会话、CSRF 校验
+  auth/              登录、会话、CSRF 校验；账号与角色（users.go）；所有接口的权限表（policy.go）
   pty/               伪终端抽象；pty_unix.go 实现，pty_windows.go 待实现 (ConPTY)
   instance/          实例配置、生命周期、崩溃重启、终端 WebSocket
   files/             基于 os.Root 的沙箱文件管理
@@ -159,13 +176,13 @@ data/                运行时数据：users.json、instances.json、instances/<
 
 加功能时尽量只新增包，不改核心：
 
-1. **新 HTTP 模块**：实现 `httpx.Module`（`Register(mux)`），在 `cmd/gpanel/main.go` 的 `modules` 列表加一行。
+1. **新 HTTP 模块**：实现 `httpx.Module`（`Register(mux)`），在 `cmd/gpanel/main.go` 的 `modules` 列表加一行，并在 `internal/auth/policy.go` 的权限表中为每个接口写明规则（没写的接口默认仅管理员可用，`go test ./cmd/gpanel` 会报出来）。
 2. **影响实例启动**：`instances.AddLaunchHook(func(cfg, spec) error)`，可写入命令变量 `spec.Vars`（命令中的 `{{name}}`）、环境变量 `spec.Env`、`spec.PathPrepend`。Java 运行时就是这样接入的。
 3. **实例的附加配置**：存进 `Config.Extensions["模块名"]`，无需改动 `instance.Config`。
 4. **响应实例事件**（定时任务、通知、备份）：`bus.Subscribe(func(events.Event))`。
 5. **新运行时类型**（Node、.NET…）：实现 `runtimes.Provider`，传给 `runtimes.NewRegistry`。要支持在线安装，再实现 `runtimes.Installer`（只需列出版本和安装目录，下载、校验、解压、任务进度都是通用的）。
 6. **另一类文件根目录**（如备份目录）：再挂一个 `files.NewHandler(prefix, rootFunc)`。
-7. **前端页面**：`app.js` 的 `nav` 加一项；实例详情页的标签在 `views/instance.js` 的 `tabs`。
+7. **前端页面**：`app.js` 的 `nav` 加一项（`admin: true` 只对管理员显示）；实例详情页的标签在 `views/instance.js` 的 `tabs`（`can` 决定谁可见）。
 
 ## Java 版本
 
@@ -207,4 +224,5 @@ data/                运行时数据：users.json、instances.json、instances/<
 - Windows ConPTY 实现
 - 大文件分块/断点续传上传；解压大小限制
 - 会话持久化（目前重启面板需重新登录）
-- 多用户与按实例授权
+- 操作日志（谁在什么时候启停了服务器、改了哪些文件）
+- 实例间的系统级隔离：每个实例使用独立的 Linux 用户运行，让「文件管理」权限也不能越权

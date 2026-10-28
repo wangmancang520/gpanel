@@ -1,4 +1,4 @@
-import { api, attempt, toast } from '../api.js';
+import { api, attempt, toast, isSuper } from '../api.js';
 import { confirmAction } from '../dialogs.js';
 import { AcmePanel } from './security-acme.js';
 
@@ -17,9 +17,10 @@ function strength(pw) {
   return [null, { level: 1, label: '弱' }, { level: 1, label: '弱' }, { level: 2, label: '中' }, { level: 3, label: '强' }, { level: 3, label: '很强' }][score] || { level: 1, label: '弱' };
 }
 
-const PasswordCard = {
+export const PasswordCard = {
   props: { user: String },
-  setup() {
+  emits: ['changed'],
+  setup(_, { emit }) {
     const { reactive, computed, ref } = Vue;
     const form = reactive({ old: '', next: '', confirm: '' });
     const busy = ref(false);
@@ -34,6 +35,7 @@ const PasswordCard = {
       if (!r) return;
       toast(r.loggedOut ? `密码已修改，已退出其他 ${r.loggedOut} 个登录会话` : '密码已修改', 'ok');
       Object.assign(form, { old: '', next: '', confirm: '' });
+      emit('changed');
     }
     return { form, busy, meter, mismatch, canSubmit, submit };
   },
@@ -75,8 +77,9 @@ export const SecurityView = {
     const https = location.protocol === 'https:';
     const httpsUrl = `https://${location.host}${location.pathname}#/security`;
 
+    // The panel's HTTPS belongs to the superadmin; others only see their password.
     const load = async () => { st.value = await attempt(() => api('GET', '/api/system/tls')) || st.value; };
-    onMounted(load);
+    onMounted(() => isSuper() && load());
 
     const cert = computed(() => st.value?.cert);
     const daysLeft = computed(() => cert.value && Math.floor((new Date(cert.value.notAfter) - Date.now()) / DAY));
