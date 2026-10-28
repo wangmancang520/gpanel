@@ -77,7 +77,7 @@ export const InstanceDetail = {
         </a>
       </nav>
       <Transition name="page" mode="out-in">
-      <TerminalPane v-if="tab === 'terminal' && g.console" :id="id" @status="onStatus" />
+      <TerminalPane v-if="tab === 'terminal' && g.console" :id="id" :state="inst.state" @status="onStatus" @start="act('start')" />
       <FileManager v-else-if="tab === 'files' && g.files" :id="id" />
       <LogViewer v-else-if="tab === 'logs' && g.console" :id="id" />
       <div v-else-if="tab === 'settings' && isAdmin()" class="card">
@@ -89,6 +89,14 @@ export const InstanceDetail = {
         </div>
       </div>
       </Transition>
+    </div>
+    <div class="page detail" v-else aria-busy="true">
+      <header class="page-head">
+        <div class="row"><span class="skeleton sk-line" style="width: 40px"></span><span class="skeleton sk-title"></span><span class="skeleton sk-pill"></span></div>
+        <div class="row"><span class="skeleton sk-button"></span><span class="skeleton sk-button"></span></div>
+      </header>
+      <div class="row sk-tabs"><span v-for="i in 3" :key="i" class="skeleton sk-line" style="width: 56px"></span></div>
+      <div class="skeleton sk-panel"></div>
     </div>
   `,
 };

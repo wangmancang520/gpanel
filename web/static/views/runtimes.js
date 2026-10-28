@@ -10,6 +10,7 @@ export const RuntimesView = {
   setup() {
     const { ref, computed, onMounted, onUnmounted } = Vue;
     const items = ref([]);
+    const loaded = ref(false);
     const releases = ref([]);
     const releasesError = ref('');
     const loadingReleases = ref(false);
@@ -17,7 +18,10 @@ export const RuntimesView = {
     const jobs = ref([]);
     const scanning = ref(false);
 
-    const loadRuntimes = async () => { items.value = await attempt(() => api('GET', '/api/runtimes')) || items.value; };
+    const loadRuntimes = async () => {
+      items.value = await attempt(() => api('GET', '/api/runtimes')) || items.value;
+      loaded.value = true;
+    };
     const loadReleases = async () => {
       loadingReleases.value = true;
       try {
@@ -76,7 +80,7 @@ export const RuntimesView = {
     const percent = (j) => (j.total ? Math.min(100, Math.round((j.downloaded / j.total) * 100)) : 0);
 
     return {
-      items, releases, releasesError, loadingReleases, showAll, jobs, groups, scanning,
+      items, loaded, releases, releasesError, loadingReleases, showAll, jobs, groups, scanning,
       install, installing, cancel, uninstall, scan, loadReleases, percent, active, jobLabels, formatSize,
     };
   },
@@ -92,7 +96,13 @@ export const RuntimesView = {
         <div class="table-scroll"><table class="table">
           <thead><tr><th>名称</th><th>主版本</th><th>路径</th><th>来源</th><th></th></tr></thead>
           <tbody>
-            <tr v-if="!items.length"><td colspan="5" class="empty">未检测到运行时，可在下方在线安装</td></tr>
+            <template v-if="!loaded">
+              <tr v-for="i in 2" :key="'sk' + i" class="sk-row">
+                <td><span class="skeleton sk-line" style="width: 150px"></span></td><td><span class="skeleton sk-line" style="width: 24px"></span></td>
+                <td><span class="skeleton sk-line" style="width: 240px"></span></td><td><span class="skeleton sk-pill"></span></td><td></td>
+              </tr>
+            </template>
+            <tr v-else-if="!items.length"><td colspan="5" class="empty">未检测到运行时，可在下方在线安装</td></tr>
             <tr v-for="r in items" :key="r.id">
               <td class="nowrap"><span class="entry"><Icon name="layers" class="muted" />{{ r.name }}</span></td>
               <td>{{ r.major }}</td>

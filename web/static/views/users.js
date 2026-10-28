@@ -120,6 +120,13 @@ export const UsersView = {
         <table class="table">
           <thead><tr><th>用户名</th><th>角色</th><th>状态</th><th>可访问的实例</th><th>最后登录</th><th></th></tr></thead>
           <tbody>
+            <template v-if="!loaded">
+              <tr v-for="i in 3" :key="'sk' + i" class="sk-row">
+                <td><span class="skeleton sk-line" style="width: 80px"></span></td><td><span class="skeleton sk-pill"></span></td>
+                <td><span class="skeleton sk-pill"></span></td><td><span class="skeleton sk-line" style="width: 96px"></span></td>
+                <td><span class="skeleton sk-line" style="width: 72px"></span></td><td></td>
+              </tr>
+            </template>
             <tr v-for="u in users" :key="u.username" :class="{ dim: u.disabled }">
               <td class="nowrap"><span class="avatar sm">{{ u.username.slice(0, 1) }}</span>{{ u.username }}
                 <span v-if="u.username === session.user.username" class="muted small">（你）</span></td>

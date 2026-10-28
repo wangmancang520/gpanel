@@ -1,6 +1,13 @@
-# GPanel
+<p align="center"><img src="web/static/favicon.svg" width="88" height="88" alt="GPanel"></p>
 
-极简游戏服务器托管面板：游戏实例管理 + Web 终端 + 文件管理。Go 单二进制，前端内嵌，无需 Node、数据库或外部 PTY 程序。
+<h1 align="center">GPanel</h1>
+
+<p align="center">极简游戏服务器托管面板：游戏实例管理 + Web 终端 + 文件管理。<br>Go 单二进制，前端内嵌，无需 Node、数据库或外部 PTY 程序。</p>
+
+<p align="center">
+  <a href="https://github.com/wangmancang520/gpanel/actions/workflows/ci.yml"><img src="https://github.com/wangmancang520/gpanel/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/wangmancang520/gpanel/releases/latest"><img src="https://img.shields.io/github/v/release/wangmancang520/gpanel" alt="最新版本"></a>
+</p>
 
 ## 一键安装
 

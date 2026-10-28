@@ -68,17 +68,19 @@ export const Icon = {
     stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" v-html="inner()"></svg>`,
 };
 
-// Brand mark: a rounded tile with a play glyph.
+// The GPanel mark: a "G" with a green "online" light in its opening. Same
+// drawing as favicon.svg (keep them in sync).
 export const Logo = {
   props: { size: { type: Number, default: 28 } },
   template: `
     <svg class="logo" :width="size" :height="size" viewBox="0 0 32 32" aria-hidden="true">
       <defs>
         <linearGradient id="gp-logo" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#2f5fd8"/>
+          <stop offset="0" stop-color="#5b8cff"/><stop offset="1" stop-color="#2848c8"/>
         </linearGradient>
       </defs>
       <rect width="32" height="32" rx="8" fill="url(#gp-logo)"/>
-      <path d="M12.5 10.5v11l9-5.5z" fill="#fff" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M22.7 11.3A8.2 8.2 0 1 0 24.2 16h-7.4" fill="none" stroke="#fff" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle class="logo-light" cx="24.4" cy="8" r="2.4" fill="#4ade80" stroke="#2f55d6" stroke-width="1.2"/>
     </svg>`,
 };

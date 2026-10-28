@@ -36,7 +36,14 @@ export const InstanceList = {
       <div v-if="loaded && !items.length" class="card empty rise">
         <Icon name="server" :size="36" /><p v-if="isAdmin()">还没有实例。点击「新建实例」开始。</p><p v-else>还没有分配给你的实例，请联系管理员。</p>
       </div>
-      <div class="cards">
+      <div v-if="!loaded" class="cards" aria-busy="true">
+        <div v-for="i in 3" :key="i" class="card instance-card sk-card">
+          <span class="skeleton sk-line" style="width: 45%; height: 16px"></span>
+          <span class="skeleton sk-line" style="width: 85%; height: 26px"></span>
+          <div class="row"><span class="skeleton sk-button"></span><span class="skeleton sk-button"></span></div>
+        </div>
+      </div>
+      <div v-else class="cards">
         <div v-for="(it, i) in items" :key="it.id" class="card instance-card rise" :class="it.state" :style="{ '--i': i }">
           <a :href="'#/instances/' + it.id" class="instance-name"><Icon name="server" />{{ it.name }}</a>
           <span class="badge" :class="it.state">{{ stateLabels[it.state] }}</span>

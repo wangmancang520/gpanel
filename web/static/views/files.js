@@ -89,6 +89,7 @@ export const FileManager = {
     const path = ref('/');
     const entries = ref([]);
     const loading = ref(false);
+    const loadedOnce = ref(false); // until then, show placeholders instead of "empty folder"
     const view = ref(VIEWS.some((v) => v.key === p0.view) ? p0.view : 'grid');
     const sort = reactive({ key: p0.sortKey || 'name', dir: p0.sortDir || 1 });
     const showHidden = ref(p0.showHidden ?? true);
@@ -147,6 +148,7 @@ export const FileManager = {
       loading.value = true;
       const list = await attempt(() => api('GET', `${base.value}?${q({ path: p })}`));
       loading.value = false;
+      loadedOnce.value = true;
       if (!list) return false;
       const changed = p !== path.value;
       entries.value = list;
@@ -646,7 +648,7 @@ export const FileManager = {
     const uploadPct = computed(() => (upload.value?.total ? Math.round((upload.value.loaded / upload.value.total) * 100) : 0));
 
     return {
-      root, body, fileInput, path, entries, loading, view, sort, showHidden, filter, selected, focusName,
+      root, body, fileInput, path, entries, loading, loadedOnce, view, sort, showHidden, filter, selected, focusName,
       renaming, renameValue, menu, editing, preview, propsInfo, dropTarget, osDrag, marquee, upload, uploadPct,
       history, base, crumbs, visible, selectedEntries, selectedSize, counts, clipboard, clipHere, VIEWS, SORTS,
       typeOf, isCut, join, go, back, forward, up, refresh, load, onItemPointerDown, onItemClick, onBodyPointerDown,
@@ -699,7 +701,14 @@ export const FileManager = {
             {{ s.label }}<Icon v-if="sort.key === s.key" name="arrow-up" :size="12" :class="{ 'sort-desc': sort.dir < 0 }" />
           </button>
         </div>
-        <div class="fm-items" :key="path">
+        <div v-if="loading && loadedOnce" class="loading-bar"></div>
+        <div v-if="!loadedOnce" class="fm-items" aria-busy="true">
+          <div v-for="i in 8" :key="i" class="fm-item sk-item">
+            <span class="fm-icon"><span class="skeleton sk-icon"></span></span>
+            <span class="fm-name"><span class="skeleton sk-line" :style="{ width: (35 + (i * 23) % 50) + '%' }"></span></span>
+          </div>
+        </div>
+        <div v-else class="fm-items" :key="path">
           <div v-for="(e, i) in visible" :key="e.name" class="fm-item" :data-name="e.name"
             :class="{ selected: selected.has(e.name), focused: focusName === e.name, cut: isCut(e), 'drop-target': dropTarget === join(e.name), dir: e.isDir }"
             :style="{ '--i': Math.min(i, 24) }" :title="view === 'grid' ? e.name : null"
@@ -723,7 +732,7 @@ export const FileManager = {
             </template>
           </div>
         </div>
-        <div v-if="!visible.length && !loading" class="empty fm-empty">
+        <div v-if="loadedOnce && !visible.length && !loading" class="empty fm-empty">
           <template v-if="filter"><Icon name="search" :size="36" /><p>没有名称包含「{{ filter }}」的项目</p></template>
           <template v-else><Icon name="folder" :size="36" /><p>这个文件夹是空的</p><p class="small">把文件拖到这里即可上传，或右键新建</p></template>
         </div>

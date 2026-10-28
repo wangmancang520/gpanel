@@ -53,6 +53,7 @@ wait_for 10 'curl -s -o /dev/null "$B/"' || { echo "panel did not start"; cat "$
 # --- auth
 check "首页可访问"           '[ "$(curl -s -o /dev/null -w %{http_code} $B/)" = 200 ]'
 check "前端资源已内嵌"        'curl -s $B/vendor/xterm.js | head -c 20 | grep -q function'
+check "站点图标"              'curl -s $B/favicon.svg | grep -q "<svg"'
 check "未登录被拦截"          '[ "$(curl -s -o /dev/null -w %{http_code} $B/api/instances)" = 401 ]'
 PW=$(grep -o '初始密码 [0-9a-f]*' "$LOG" | awk '{print $2}')
 check "日志打印初始密码"      '[ -n "$PW" ]'
