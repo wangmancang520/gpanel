@@ -215,6 +215,7 @@ label.check { flex-direction: row; align-items: center; gap: 6px; font-weight: 4
   border: 1px solid var(--border); background: #0f1115; box-shadow: var(--shadow-md);
 }
 .term-host { height: calc(100vh - 280px); min-height: 320px; padding: 10px 4px 4px 12px; }
+.term-fit { height: 100%; } /* xterm's parent: no padding, see terminal.js */
 .term-host .xterm-viewport { background-color: #0f1115 !important; } /* xterm defaults to pure black */
 .command-bar { display: flex; gap: 8px; align-items: center; padding: 10px; background: var(--surface); border-top: 1px solid var(--border); }
 .conn { display: flex; align-items: center; gap: 6px; flex-shrink: 0; font-size: 12px; color: var(--muted); min-width: 56px; }

@@ -71,7 +71,11 @@ export const TerminalPane = {
   },
   template: `
     <div class="terminal-wrap">
-      <div ref="el" class="term-host"></div>
+      <!-- xterm is sized from its parent's height; FitAddon counts the
+           parent's padding as usable space, so the padding lives on an outer
+           box and the parent (.term-fit) has none, or the last row would
+           spill over the command bar. -->
+      <div class="term-host"><div ref="el" class="term-fit"></div></div>
       <form class="command-bar" @submit.prevent="sendCommand">
         <span class="conn"><span class="dot" :class="{ on: connected }"></span>{{ connected ? '已连接' : '连接中…' }}</span>
         <input v-model="command" class="mono" placeholder="输入命令后回车发送">
