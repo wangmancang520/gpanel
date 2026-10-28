@@ -289,9 +289,30 @@ func (c *Cloudflare) call(ctx context.Context, method, path string, body, out an
 	return nil
 }
 
+// cloudflarePageSize is the API's maximum for /zones.
+const cloudflarePageSize = 50
+
+type cloudflareZone struct{ ID, Name string }
+
+// zones lists every zone the token can see, page by page.
+func (c *Cloudflare) zones(ctx context.Context) ([]cloudflareZone, error) {
+	var all []cloudflareZone
+	for page := 1; ; page++ {
+		var zs []cloudflareZone
+		path := fmt.Sprintf("/zones?per_page=%d&page=%d", cloudflarePageSize, page)
+		if err := c.call(ctx, http.MethodGet, path, nil, &zs); err != nil {
+			return nil, err
+		}
+		all = append(all, zs...)
+		if len(zs) < cloudflarePageSize {
+			return all, nil
+		}
+	}
+}
+
 func (c *Cloudflare) AddTXT(ctx context.Context, name, value string) (Record, error) {
-	var zs []struct{ ID, Name string }
-	if err := c.call(ctx, http.MethodGet, "/zones?per_page=50", nil, &zs); err != nil {
+	zs, err := c.zones(ctx)
+	if err != nil {
 		return Record{}, err
 	}
 	names := make([]string, len(zs))

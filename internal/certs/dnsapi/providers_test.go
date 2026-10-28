@@ -3,9 +3,11 @@ package dnsapi
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -159,5 +161,32 @@ func TestCloudflareFlow(t *testing.T) {
 	bad := &Cloudflare{Token: "x", Endpoint: srv.URL}
 	if _, err := bad.AddTXT(context.Background(), "_acme-challenge.example.org", "v"); err == nil || !strings.Contains(err.Error(), "Authentication error") {
 		t.Fatalf("want auth error, got %v", err)
+	}
+}
+
+func TestCloudflareFindsZoneOnLaterPage(t *testing.T) {
+	const total = 120 // three pages of 50, 50, 20
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == "/zones":
+			page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+			per, _ := strconv.Atoi(r.URL.Query().Get("per_page"))
+			var zs []string
+			for i := (page - 1) * per; i < min(page*per, total); i++ {
+				zs = append(zs, fmt.Sprintf(`{"id":"z%d","name":"site%d.example"}`, i, i))
+			}
+			fmt.Fprintf(w, `{"success":true,"result":[%s]}`, strings.Join(zs, ","))
+		case r.Method == "POST" && r.URL.Path == "/zones/z119/dns_records":
+			io.WriteString(w, `{"success":true,"result":{"id":"r1"}}`)
+		default:
+			t.Errorf("unexpected %s %s", r.Method, r.URL)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	c := &Cloudflare{Token: "tok", Endpoint: srv.URL}
+	r, err := c.AddTXT(context.Background(), "_acme-challenge.site119.example", "v")
+	if err != nil || r.Zone != "z119" {
+		t.Fatalf("AddTXT = %+v, %v; want zone z119 from the last page", r, err)
 	}
 }
