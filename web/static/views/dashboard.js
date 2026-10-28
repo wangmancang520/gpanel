@@ -188,7 +188,7 @@ export const Dashboard = {
             <tr v-for="it in running" :key="it.id">
               <td class="nowrap"><a :href="'#/instances/' + it.id" class="dir">{{ it.name }}</a></td>
               <td><span class="badge" :class="it.state">{{ stateLabels[it.state] }}</span></td>
-              <td class="nowrap"><span v-if="chip(it.id)" class="players-chip" :class="{ starting: chip(it.id).starting, empty: chip(it.id).empty }" :title="chip(it.id).title"><Icon name="users" :size="14" />{{ chip(it.id).text }}</span><span v-else class="muted">—</span></td>
+              <td class="nowrap"><span v-if="chip(it.id)" class="players-chip" :class="{ starting: chip(it.id).starting, idle: chip(it.id).empty }" :title="chip(it.id).title"><Icon name="users" :size="14" />{{ chip(it.id).text }}</span><span v-else class="muted">—</span></td>
               <td class="muted">{{ it.pid || '—' }}</td>
               <td class="nowrap">{{ it.startedAt ? formatDuration(now - new Date(it.startedAt)) : '—' }}</td>
               <td class="num">{{ usage(it.id) ? fmtPct(usage(it.id).cpu) : '—' }}</td>

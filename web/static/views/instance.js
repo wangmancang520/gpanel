@@ -60,7 +60,7 @@ export const InstanceDetail = {
           <a href="#/instances" class="crumb-link">实例</a><span class="muted">/</span>
           <h1>{{ inst.name }}</h1>
           <span class="badge" :class="inst.state">{{ stateLabels[inst.state] }}</span>
-          <span v-if="chip" class="players-chip" :class="{ starting: chip.starting, empty: chip.empty }" :title="chip.title"><Icon name="users" :size="14" />{{ chip.text }}</span>
+          <span v-if="chip" class="players-chip" :class="{ starting: chip.starting, idle: chip.empty }" :title="chip.title"><Icon name="users" :size="14" />{{ chip.text }}</span>
           <span v-if="inst.pid" class="muted small">PID {{ inst.pid }}</span>
         </div>
         <div class="row" v-if="g.console">

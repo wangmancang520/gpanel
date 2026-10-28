@@ -764,7 +764,7 @@ code.secret { font-size: 18px; letter-spacing: .04em; padding: 8px 12px; backgro
 /* ---- players online */
 .players-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 1px 8px; border-radius: 999px;
   color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); cursor: default; white-space: nowrap; }
-.players-chip.empty { color: var(--muted); background: var(--surface-2); }
+.players-chip.idle { color: var(--muted); background: var(--surface-2); } /* not .empty: that is the empty-state block */
 .players-chip.starting { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .players-chip.push-right { margin-left: auto; }
 

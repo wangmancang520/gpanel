@@ -55,7 +55,7 @@ export const InstanceList = {
               <a class="button" :href="'#/instances/' + it.id"><Icon name="terminal" />控制台</a>
             </template>
             <a v-else class="button" :href="'#/instances/' + it.id + '/files'"><Icon name="folder" />文件</a>
-            <span v-if="chip(it.id)" class="players-chip push-right" :class="{ starting: chip(it.id).starting, empty: chip(it.id).empty }" :title="chip(it.id).title"><Icon name="users" :size="14" />{{ chip(it.id).text }}</span>
+            <span v-if="chip(it.id)" class="players-chip push-right" :class="{ starting: chip(it.id).starting, idle: chip(it.id).empty }" :title="chip(it.id).title"><Icon name="users" :size="14" />{{ chip(it.id).text }}</span>
           </div>
         </div>
       </div>
