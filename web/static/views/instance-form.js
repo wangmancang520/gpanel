@@ -61,7 +61,7 @@ export const InstanceForm = {
         <small class="muted">启动时会把所选 Java 放到 PATH 最前面并设置 JAVA_HOME，所以整合包自带的启动脚本（如 <code>bash start.sh</code>）里直接调用 <code>java</code> 也会使用这个版本。脚本里写死的 Java 路径不受影响。</small>
       </label>
       <div class="grid2">
-        <label>停止命令<input v-model="form.stopCommand" class="mono" placeholder="留空则发送 SIGTERM"></label>
+        <label>停止命令<input v-model="form.stopCommand" class="mono" placeholder="留空则发送 SIGTERM" title="写入控制台的命令；填 ^C 则发送 Ctrl+C"></label>
         <label>停止超时（秒）<input v-model="form.stopTimeout" type="number" min="1"></label>
       </div>
       <label>工作目录<input v-model="form.workDir" class="mono" placeholder="留空则使用面板数据目录">

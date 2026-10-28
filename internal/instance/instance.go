@@ -266,7 +266,11 @@ func (i *Instance) Stop() error {
 	i.publish()
 
 	if stopCmd != "" {
-		if _, err := proc.Write([]byte(stopCmd + "\r")); err != nil {
+		input := stopCmd + "\r"
+		if stopCmd == CtrlC {
+			input = "\x03" // the terminal turns it into SIGINT for the foreground process
+		}
+		if _, err := proc.Write([]byte(input)); err != nil {
 			_ = proc.Terminate()
 		}
 	} else {

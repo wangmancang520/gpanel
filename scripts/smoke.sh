@@ -69,6 +69,14 @@ check "概览统计实例资源"      '[ $LINUX = 0 ] || wait_for 5 "c $B/api/sy
 c -X POST $B/api/instances/$ID/stop >/dev/null
 check "优雅停止 (退出码 0)"   'wait_for 5 "status $ID | grep -q \"\\\"state\\\":\\\"stopped\\\".*\\\"exitCode\\\":0\""'
 
+# Ctrl+C as the stop command (GSManager's "ctrl+c"); stopTimeout is long, so
+# stopping quickly proves it was the Ctrl+C and not the SIGTERM fallback.
+c -X PUT $B/api/instances/$ID -d "{\"name\":\"smoke\",\"command\":\"bash $HERE/fake-server.sh\",\"stopCommand\":\"^C\",\"stopTimeout\":30}" >/dev/null
+c -X POST $B/api/instances/$ID/start >/dev/null
+wait_for 5 "status $ID | grep -q \"\\\"state\\\":\\\"running\\\"\""
+c -X POST $B/api/instances/$ID/stop >/dev/null
+check "Ctrl+C 停止命令"        'wait_for 5 "status $ID | grep -q \"\\\"state\\\":\\\"stopped\\\"\""'
+
 c -X POST $B/api/instances/$ID/start >/dev/null
 c -X POST $B/api/instances/$ID/command -d '{"command":"crash"}' >/dev/null
 check "崩溃被识别 (退出码 3)" 'wait_for 5 "status $ID | grep -q \"\\\"state\\\":\\\"crashed\\\".*\\\"exitCode\\\":3\""'

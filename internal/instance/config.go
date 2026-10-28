@@ -18,7 +18,7 @@ type Config struct {
 	Name        string            `json:"name"`
 	WorkDir     string            `json:"workDir"`     // absolute, user-chosen; empty = <data>/instances/<id> (resolved at runtime so the data dir can move)
 	Command     string            `json:"command"`     // e.g. "{{java}} -Xmx4G -jar server.jar nogui"
-	StopCommand string            `json:"stopCommand"` // written to the console to stop gracefully; empty = SIGTERM
+	StopCommand string            `json:"stopCommand"` // written to the console to stop gracefully; CtrlC sends Ctrl+C; empty = SIGTERM
 	StopTimeout int               `json:"stopTimeout"` // seconds before escalating to SIGTERM / SIGKILL
 	Env         map[string]string `json:"env"`
 	Runtime     string            `json:"runtime"` // runtime ID (e.g. a Java install); empty = system default
@@ -139,6 +139,22 @@ func buildArgv(cfg Config, spec *LaunchSpec) ([]string, []string, error) {
 		envList = append(envList, k+"="+env[k])
 	}
 	return words, envList, nil
+}
+
+// CtrlC as a StopCommand sends Ctrl+C to the console instead of a line.
+const CtrlC = "^C"
+
+var plainArg = regexp.MustCompile(`^[A-Za-z0-9_./:=+,@%-]+$`)
+
+// QuoteArg quotes s so that splitCommand reads it back as exactly one
+// argument, e.g. for building `bash -c '<script>'`.
+func QuoteArg(s string) string {
+	if plainArg.MatchString(s) {
+		return s
+	}
+	// Single quotes keep everything literal; a quote itself is closed,
+	// backslash-escaped and reopened.
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // splitCommand splits a command line shell-style (quotes and backslash
