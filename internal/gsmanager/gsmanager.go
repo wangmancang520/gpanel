@@ -54,8 +54,12 @@ type Options struct {
 	DataDir string          // GPanel data dir
 	Move    map[string]bool // work dirs to move into GPanel's instance dir
 	DryRun  bool            // report only, change nothing
-	Report  io.Writer       // human-readable progress (Chinese)
-	Dirs    io.Writer       // one final work dir per imported instance (for the installer)
+	// RewriteJava replaces hard-coded GSManager Java paths in start scripts
+	// with plain "java" (backing the script up), so the instance's runtime is
+	// used and removing GSManager doesn't break it.
+	RewriteJava bool
+	Report      io.Writer // human-readable progress (Chinese)
+	Dirs        io.Writer // one final work dir per imported instance (for the installer)
 }
 
 type Result struct {
@@ -127,10 +131,41 @@ func Import(opts Options) (Result, error) {
 		}
 		say("    目录  %s", dir)
 		say("    命令  %s", cfg.Command)
-		if in.JavaVersion != "" {
-			jr := java.resolve(in.JavaVersion)
+		// Start scripts often call GSManager's JDK by absolute path; that is
+		// the Java the server really runs on, whatever the instance says.
+		version := in.JavaVersion
+		scripts := scriptJava(conv.shell, dir)
+		for _, s := range scripts {
+			say("    脚本  %s 直接调用 GSManager 的 Java（%s）", s.name, s.path)
+			if version != "" && version != s.version {
+				say("    ! 实例设置的是 %s，但脚本实际使用 %s，以脚本为准", version, s.version)
+			}
+			version = s.version
+		}
+		if version != "" {
+			jr := java.resolve(version)
 			cfg.Runtime = jr.id
 			say("    Java  %s", jr.note)
+		}
+		if len(scripts) > 0 {
+			switch {
+			case !opts.RewriteJava:
+				say("    ! 卸载 GSManager 后这些脚本将无法启动；可用 -rewrite-java 改为使用所选的运行时")
+			case opts.DryRun:
+				say("    将把脚本中的 GSManager Java 路径改为 java（原文件备份为 *%s），改用所选的运行时", backupSuffix)
+			default:
+				for _, s := range scripts {
+					left, err := rewriteJava(filepath.Join(dir, s.name))
+					if err != nil {
+						say("    ! 改写 %s 失败：%v", s.name, err)
+						continue
+					}
+					say("    已把 %s 中的 GSManager Java 路径改为 java（原文件备份为 %s%s）", s.name, s.name, backupSuffix)
+					if left {
+						say("    ! %s 中仍有其他地方引用 GSManager 的 Java 目录（如 JAVA_HOME），请手动检查", s.name)
+					}
+				}
+			}
 		}
 		for _, w := range warnings(in) {
 			say("    ! %s", w)
@@ -225,6 +260,7 @@ func warnings(in gsmInstance) []string {
 
 type converted struct {
 	command string
+	shell   string // the command as bash would run it, before wrapping
 	chmod   string // file in the work dir to make executable, as GSManager does on start
 }
 
@@ -258,7 +294,7 @@ func convertCommand(in gsmInstance, dir string) (converted, error) {
 	if first := strings.Fields(cmd)[0]; strings.HasPrefix(first, "./") && isFile(filepath.Join(dir, first)) {
 		c.chmod = first[2:]
 	}
-	c.command = wrapShell(cmd)
+	c.shell, c.command = cmd, wrapShell(cmd)
 	return c, nil
 }
 
@@ -324,6 +360,70 @@ func wrapShell(cmd string) string {
 		return cmd
 	}
 	return "bash -c " + instance.QuoteArg(cmd)
+}
+
+// ---- Java paths hard-coded in start scripts
+
+const backupSuffix = ".gsmanager.bak"
+
+// gsmJavaPath matches a call to a JDK that GSManager installed, e.g.
+// /opt/gsmanager3/data/environment/Java/java21/jdk-21/bin/java.
+var gsmJavaPath = regexp.MustCompile(`/[^\s"'=;:]*/data/environment/Java/(java[0-9]+)/(?:[^\s"';:]*/)?bin/java\b`)
+
+type scriptRef struct {
+	name, version, path string
+}
+
+// scriptJava finds the *.sh files in dir that cmd runs and reports those
+// calling a GSManager JDK directly.
+func scriptJava(cmd, dir string) []scriptRef {
+	var refs []scriptRef
+	seen := map[string]bool{}
+	for _, tok := range strings.FieldsFunc(cmd, func(r rune) bool { return strings.ContainsRune(" \t\n;&|()", r) }) {
+		name := strings.TrimPrefix(strings.Trim(tok, `"'`), "./")
+		if seen[name] || !strings.HasSuffix(name, ".sh") || strings.Contains(name, "/") || !isFile(filepath.Join(dir, name)) {
+			continue
+		}
+		seen[name] = true
+		b, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil || len(b) > 1<<20 {
+			continue
+		}
+		if m := gsmJavaPath.FindSubmatch(b); m != nil {
+			refs = append(refs, scriptRef{name: name, version: string(m[1]), path: string(m[0])})
+		}
+	}
+	return refs
+}
+
+// rewriteJava replaces GSManager JDK calls in the script with "java",
+// keeping the original as <script>.gsmanager.bak (an existing backup, from
+// an earlier run, is kept). It reports whether other references to
+// GSManager's Java directory remain.
+func rewriteJava(path string) (leftover bool, err error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	st, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	if _, err := os.Lstat(path + backupSuffix); os.IsNotExist(err) {
+		if err := os.WriteFile(path+backupSuffix, b, st.Mode().Perm()); err != nil {
+			return false, err
+		}
+	}
+	out := gsmJavaPath.ReplaceAll(b, []byte("java"))
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, out, st.Mode().Perm()); err != nil {
+		return false, err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return false, err
+	}
+	return strings.Contains(string(out), "/data/environment/Java/"), nil
 }
 
 func isFile(p string) bool {

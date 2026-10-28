@@ -82,6 +82,7 @@ sudo gpanel-ctl migrate-gsmanager      # 或菜单中的「从 GSManager 迁移�
 | 我的世界 Java 版 / 基岩版 | 按 GSManager 的规则识别 `start.sh`、`run.sh`、服务端 jar 或 `bedrock_server`，生成固定的启动命令 |
 | 停止方式 stop / exit / quit / ctrl+c | 同名停止命令；ctrl+c 对应 `^C` |
 | Java 版本（java8、java17…） | 优先用 GPanel 管理的同一主版本；否则复制 GSManager 当初使用的 JDK；都没有时才用系统中的同一主版本 |
+| 启动脚本里写死的 GSManager Java 路径（如 Forge 的 `run.sh` 调用 `/opt/gsmanager3/data/environment/Java/java21/…/bin/java`） | 按脚本实际使用的版本选用运行时；迁移时询问是否把路径改为 `java`（原文件备份为 `.gsmanager.bak`），改写后卸载 GSManager 也不影响启动 |
 
 - 位于 gpanel 用户进不去的目录（如 `/root` 下）的实例，会询问是否移动到 `/var/lib/gpanel/instances`（同一磁盘上是瞬间完成的改名）。
 - 不迁移：GSManager 的账号、定时任务、RCON、备份、插件；以其他用户运行（终端用户）的设置；SteamCMD 一键更新（GPanel 暂不支持，游戏本身照常运行）。

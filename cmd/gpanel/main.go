@@ -195,7 +195,7 @@ func importGSManager(cfg config.Config) int {
 		}
 	}
 	res, err := gsmanager.Import(gsmanager.Options{
-		GSMDir: cfg.ImportGSManager, DataDir: cfg.DataDir, Move: move, DryRun: cfg.DryRun,
+		GSMDir: cfg.ImportGSManager, DataDir: cfg.DataDir, Move: move, DryRun: cfg.DryRun, RewriteJava: cfg.RewriteJava,
 		Report: os.Stderr, Dirs: os.Stdout,
 	})
 	if err != nil {

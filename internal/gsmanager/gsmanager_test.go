@@ -44,6 +44,9 @@ func fakeGSM(t *testing.T, instances []map[string]any) (gsm, games string) {
 	if err := os.Symlink("bin/java", filepath.Join(jdk, "java-link")); err != nil {
 		t.Fatal(err)
 	}
+	jdk21 := filepath.Join(gsm, "data", "environment", "Java", "java21", "jdk-21") // as on a real server
+	write(filepath.Join(jdk21, "bin", "java"), "#!/bin/sh\n", 0o755)
+	write(filepath.Join(jdk21, "release"), "JAVA_VERSION=\"21.0.5\"\n", 0o644)
 
 	for _, in := range instances {
 		if d, ok := in["workingDirectory"].(string); ok && !filepath.IsAbs(d) && !strings.HasPrefix(d, "games/") {
@@ -278,9 +281,9 @@ func TestImportPrefersGSManagerJDKOverSystemJava(t *testing.T) {
 }
 
 func TestImportFallsBackToSystemJava(t *testing.T) {
-	fakeSystemJDK(t, "21.0.4")
-	gsm, _ := fakeGSM(t, []map[string]any{ // GSManager has only Java 17 installed
-		{"id": "g5", "name": "mc", "workingDirectory": "mcj", "startCommand": "x", "stopCommand": "stop", "instanceType": "minecraft-java", "javaVersion": "java21"},
+	fakeSystemJDK(t, "11.0.24")
+	gsm, _ := fakeGSM(t, []map[string]any{ // GSManager has Java 17 and 21, not 11
+		{"id": "g5", "name": "mc", "workingDirectory": "mcj", "startCommand": "x", "stopCommand": "stop", "instanceType": "minecraft-java", "javaVersion": "java11"},
 	})
 	data := t.TempDir()
 	var report bytes.Buffer
@@ -288,9 +291,168 @@ func TestImportFallsBackToSystemJava(t *testing.T) {
 		t.Fatal(err)
 	}
 	if runtimeOf(t, data, "mc") == "" || !strings.Contains(report.String(), "使用系统中的") {
-		t.Errorf("system Java 21 not used:\n%s", report.String())
+		t.Errorf("system Java 11 not used:\n%s", report.String())
 	}
-	if _, err := os.Stat(filepath.Join(data, "runtimes", "java", "gsmanager-java21")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(data, "runtimes", "java", "gsmanager-java11")); !os.IsNotExist(err) {
 		t.Error("copied a JDK that GSManager doesn't have")
+	}
+}
+
+// Start scripts as found on a real GSManager server: Forge's one-line
+// run.sh and a hand-written multi-line exec, both calling GSManager's JDK.
+const (
+	forgeRunSh = `#!/usr/bin/env sh
+# Forge requires a configured set of both JVM and program arguments.
+/opt/gsmanager3/data/environment/Java/java21/jdk-21/bin/java @user_jvm_args.txt @libraries/net/minecraftforge/forge/1.20.1-47.4.16/unix_args.txt "$@"
+`
+	forgeRunShRewritten = `#!/usr/bin/env sh
+# Forge requires a configured set of both JVM and program arguments.
+java @user_jvm_args.txt @libraries/net/minecraftforge/forge/1.20.1-47.4.16/unix_args.txt "$@"
+`
+	execRunSh = `#!/bin/bash
+exec /opt/gsmanager3/data/environment/Java/java21/jdk-21/bin/java \
+  @user_jvm_args.txt \
+  -XX:+UseG1GC \
+  -jar server.jar nogui
+`
+	execRunShRewritten = `#!/bin/bash
+exec java \
+  @user_jvm_args.txt \
+  -XX:+UseG1GC \
+  -jar server.jar nogui
+`
+	homeRunSh = `#!/bin/sh
+export JAVA_HOME=/opt/gsmanager3/data/environment/Java/java21/jdk-21
+"/opt/gsmanager3/data/environment/Java/java21/jdk-21/bin/java" -jar server.jar
+`
+)
+
+func scriptFixture(t *testing.T) (gsm, games string) {
+	t.Helper()
+	gsm, games = fakeGSM(t, []map[string]any{
+		{"id": "s1", "name": "forge", "workingDirectory": "forge", "startCommand": "./run.sh", "stopCommand": "stop"},
+		{"id": "s2", "name": "exec", "workingDirectory": "exec", "startCommand": "x", "stopCommand": "stop", "instanceType": "minecraft-java", "javaVersion": "java21"},
+		{"id": "s3", "name": "mismatch", "workingDirectory": "mismatch", "startCommand": "bash run.sh", "stopCommand": "stop", "javaVersion": "java17"},
+		{"id": "s4", "name": "home", "workingDirectory": "home", "startCommand": "run.sh", "stopCommand": "stop"},
+	})
+	for dir, body := range map[string]string{"forge": forgeRunSh, "exec": execRunSh, "mismatch": forgeRunSh, "home": homeRunSh} {
+		os.MkdirAll(filepath.Join(games, dir), 0o755)
+		if err := os.WriteFile(filepath.Join(games, dir, "run.sh"), []byte(body), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return gsm, games
+}
+
+func readFile(t *testing.T, p string) string {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
+func TestScriptJavaRewritten(t *testing.T) {
+	gsm, games := scriptFixture(t)
+	data := t.TempDir()
+	var report bytes.Buffer
+	if _, err := Import(Options{GSMDir: gsm, DataDir: data, RewriteJava: true, Report: &report}); err != nil {
+		t.Fatal(err)
+	}
+	t.Log(report.String())
+
+	run := func(dir string) string { return filepath.Join(games, dir, "run.sh") }
+	if got := readFile(t, run("forge")); got != forgeRunShRewritten {
+		t.Errorf("forge run.sh rewritten to:\n%s", got)
+	}
+	if got := readFile(t, run("exec")); got != execRunShRewritten {
+		t.Errorf("multi-line run.sh rewritten to:\n%s", got)
+	}
+	if readFile(t, run("forge")+backupSuffix) != forgeRunSh {
+		t.Error("original not backed up")
+	}
+	// "bash run.sh" needs no chmod, so the rewrite alone must keep the mode.
+	if st, _ := os.Stat(run("mismatch")); st.Mode().Perm() != 0o750 {
+		t.Errorf("mode changed to %v", st.Mode().Perm())
+	}
+
+	// The instance without a Java version gets the one its script used,
+	// the same runtime as the instance that asked for java21.
+	java21 := runtimeOf(t, data, "exec")
+	if java21 == "" || runtimeOf(t, data, "forge") != java21 || runtimeOf(t, data, "home") != java21 {
+		t.Errorf("runtimes: forge %q exec %q home %q", runtimeOf(t, data, "forge"), java21, runtimeOf(t, data, "home"))
+	}
+	// The script wins over the instance's own (stale) setting.
+	if runtimeOf(t, data, "mismatch") != java21 {
+		t.Error("mismatch: script's Java 21 not used")
+	}
+	for _, w := range []string{"实例设置的是 java17，但脚本实际使用 java21", "仍有其他地方引用 GSManager 的 Java 目录"} {
+		if !strings.Contains(report.String(), w) {
+			t.Errorf("report lacks %q", w)
+		}
+	}
+	// "home" keeps its JAVA_HOME line (flagged above) but the call itself
+	// was replaced, quotes included.
+	if got := readFile(t, run("home")); !strings.Contains(got, `"java" -jar server.jar`) || !strings.Contains(got, "JAVA_HOME=/opt/") {
+		t.Errorf("home run.sh:\n%s", got)
+	}
+
+	// A second rewrite keeps the original backup.
+	if _, err := rewriteJava(run("forge")); err != nil {
+		t.Fatal(err)
+	}
+	if readFile(t, run("forge")+backupSuffix) != forgeRunSh {
+		t.Error("backup overwritten by a second run")
+	}
+}
+
+func TestScriptJavaWithoutRewrite(t *testing.T) {
+	for _, dry := range []bool{false, true} {
+		gsm, games := scriptFixture(t)
+		data := t.TempDir()
+		var report bytes.Buffer
+		if _, err := Import(Options{GSMDir: gsm, DataDir: data, DryRun: dry, RewriteJava: dry, Report: &report}); err != nil {
+			t.Fatal(err)
+		}
+		if readFile(t, filepath.Join(games, "forge", "run.sh")) != forgeRunSh {
+			t.Errorf("dry=%v: script changed", dry)
+		}
+		if _, err := os.Stat(filepath.Join(games, "forge", "run.sh"+backupSuffix)); !os.IsNotExist(err) {
+			t.Errorf("dry=%v: backup written", dry)
+		}
+		want := "-rewrite-java" // plain import: explain how to fix it
+		if dry {
+			want = "将把脚本中的 GSManager Java 路径改为 java"
+		}
+		if !strings.Contains(report.String(), "直接调用 GSManager 的 Java") || !strings.Contains(report.String(), want) {
+			t.Errorf("dry=%v report:\n%s", dry, report.String())
+		}
+		if !dry && runtimeOf(t, data, "forge") == "" {
+			t.Error("runtime not selected without rewriting")
+		}
+	}
+}
+
+func TestGSMJavaPattern(t *testing.T) {
+	match := []string{
+		"/opt/gsmanager3/data/environment/Java/java21/jdk-21/bin/java",
+		"/srv/gsm/data/environment/Java/java8/java-se-8u44-ri/bin/java",
+		"/opt/gsmanager3/data/environment/Java/java25/bin/java",
+	}
+	noMatch := []string{
+		"/opt/gsmanager3/data/environment/Java/java21/jdk-21/bin/javac",
+		"/usr/lib/jvm/java-21-openjdk-amd64/bin/java",
+		"/opt/gsmanager3/data/environment/Java/java21/jdk-21",
+	}
+	for _, s := range match {
+		if !gsmJavaPath.MatchString(s) {
+			t.Errorf("should match: %s", s)
+		}
+	}
+	for _, s := range noMatch {
+		if gsmJavaPath.MatchString(s) {
+			t.Errorf("should not match: %s", s)
+		}
 	}
 }

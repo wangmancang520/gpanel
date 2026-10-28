@@ -733,7 +733,7 @@ cmd_migrate_gsm() {
   local tmp
   tmp="$(work_dir)"
   step "读取 GSManager 实例（不做任何修改）"
-  "$BIN" -data "$DATA" -import-gsmanager "$dir" -dry-run >"$tmp/dirs" 2>"$tmp/plan" || { cat "$tmp/plan" >&2; die "读取失败"; }
+  "$BIN" -data "$DATA" -import-gsmanager "$dir" -dry-run -rewrite-java >"$tmp/dirs" 2>"$tmp/plan" || { cat "$tmp/plan" >&2; die "读取失败"; }
   sed 's/^/  /' "$tmp/plan"
   if [ ! -s "$tmp/dirs" ]; then
     ok "没有需要迁移的实例"
@@ -759,6 +759,14 @@ cmd_migrate_gsm() {
     fi
   fi
 
+  # Start scripts calling GSManager's own JDK by path would break once
+  # GSManager is removed; offer to point them at the instance's runtime.
+  local rewrite=0
+  if grep -q "直接调用 GSManager 的 Java" "$tmp/plan"; then
+    info "上面有启动脚本直接调用 GSManager 自带的 Java。改为 java 后会使用实例所选的运行时，以后卸载 GSManager 也不受影响。"
+    confirm "改写这些脚本？（原文件备份为 *.gsmanager.bak）" y && rewrite=1
+  fi
+
   warn "迁移前要先停止 GSManager，否则两个面板会同时运行同一个服务器（存档损坏、端口冲突）。"
   info "建议先在 GSManager 中逐个停止正在运行的游戏服务器，让它们正常保存。"
   confirm "开始迁移？" y || { info "已取消"; return 0; }
@@ -777,6 +785,7 @@ cmd_migrate_gsm() {
   systemctl stop "$SVC"
   local args=(-data "$DATA" -import-gsmanager "$dir")
   [ -s "$tmp/move" ] && args+=(-move-list "$tmp/move")
+  [ "$rewrite" = 1 ] && args+=(-rewrite-java)
   if ! "$BIN" "${args[@]}" >"$tmp/done" 2>"$tmp/report"; then
     sed 's/^/  /' "$tmp/report" >&2
     svc_start start || true

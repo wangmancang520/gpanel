@@ -163,6 +163,14 @@ mkdir -p "$GSM/data" /srv/gsm-games/pal/sub /root/gsm-games/mc
 install -m 755 "$ROOT/scripts/fake-server.sh" /srv/gsm-games/pal/sub/run.sh
 install -m 644 "$ROOT/scripts/fake-server.sh" /root/gsm-games/mc/start.sh # GSManager chmods on start
 echo save >/root/gsm-games/mc/level.dat
+# Like Forge's run.sh on real servers: calls GSManager's JDK by absolute path.
+mkdir -p /srv/gsm-games/forge
+cat >/srv/gsm-games/forge/run.sh <<EOF
+#!/bin/sh
+$GSM/data/environment/Java/java17/jdk-17.0.9+9/bin/java -version >java.txt 2>&1
+exec $FAKE
+EOF
+chmod 755 /srv/gsm-games/forge/run.sh
 JDK="$GSM/data/environment/Java/java17/jdk-17.0.9+9"
 mkdir -p "$JDK/bin"
 printf '#!/bin/sh\necho fake java\n' >"$JDK/bin/java" && chmod 755 "$JDK/bin/java"
@@ -173,6 +181,7 @@ cat >"$GSM/data/instances.json" <<'EOF'
    "stopCommand": "ctrl+c", "autoStart": false, "terminalUser": "steam"},
   {"id": "gsm-2", "name": "mc", "workingDirectory": "/root/gsm-games/mc", "startCommand": "echo Minecraft Java Edition",
    "stopCommand": "stop", "autoStart": false, "instanceType": "minecraft-java", "javaVersion": "java17"},
+  {"id": "gsm-4", "name": "forge", "workingDirectory": "/srv/gsm-games/forge", "startCommand": "./run.sh", "stopCommand": "stop"},
   {"id": "gsm-3", "name": "gone", "workingDirectory": "/srv/gsm-games/nope", "startCommand": "x", "stopCommand": "stop"}
 ]
 EOF
@@ -190,7 +199,7 @@ inst() { # inst NAME KEY: a field of the panel's instance named NAME
 }
 
 OUT=$($CTL migrate-gsmanager -y 2>&1); echo "$OUT"
-check "迁移成功"                  'echo "$OUT" | grep -q 迁移完成 && echo "$OUT" | grep -q "已导入 2 个实例，跳过 1 个"'
+check "迁移成功"                  'echo "$OUT" | grep -q 迁移完成 && echo "$OUT" | grep -q "已导入 3 个实例，跳过 1 个"'
 check "GSManager 已停止并取消自启" '! systemctl is-active --quiet gsm3 && ! systemctl is-enabled --quiet gsm3'
 check "迁移后可登录"              'wait_for 10 "login \"$NEWPW\""'
 check "实例已导入"                '[ -n "$(inst pal id)" ] && [ -n "$(inst mc id)" ] && [ -z "$(inst gone id)" ]'
@@ -204,8 +213,15 @@ check "迁移的实例可启动"          'c -X POST $B/api/instances/$PAL/start
 c -X POST $B/api/instances/$PAL/stop >/dev/null
 check "Ctrl+C 停止命令生效"       'wait_for 5 "[ \"\$(inst pal state)\" = stopped ]"'
 c -X POST $B/api/instances/"$(inst mc id)"/stop >/dev/null
+check "启动脚本已改写并备份"      'grep -q "^java -version" /srv/gsm-games/forge/run.sh && grep -q "^$GSM/data/environment" /srv/gsm-games/forge/run.sh.gsmanager.bak'
+check "脚本的 Java 版本已选用"    '[ -n "$(inst forge runtime)" ] && [ "$(inst forge runtime)" = "$(inst mc runtime)" ]'
+# GSManager's own JDKs gone: the rewritten script must still find Java.
+rm -rf "$GSM/data/environment"
+c -X POST $B/api/instances/"$(inst forge id)"/start >/dev/null
+check "不依赖 GSManager 的 Java"  'wait_for 10 "grep -q \"fake java\" /srv/gsm-games/forge/java.txt 2>/dev/null" && [ "$(inst forge state)" = running ]'
+c -X POST $B/api/instances/"$(inst forge id)"/stop >/dev/null
 OUT=$($CTL migrate-gsmanager -y 2>&1)
-check "重复迁移不会重复导入"      'echo "$OUT" | grep -q 已导入过 && [ "$(c $B/api/instances | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")" = 3 ]'
+check "重复迁移不会重复导入"      'echo "$OUT" | grep -q 已导入过 && [ "$(c $B/api/instances | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")" = 4 ]'
 systemctl disable --now gsm3 >/dev/null 2>&1; rm -f /usr/local/lib/systemd/system/gsm3.service; systemctl daemon-reload
 rm -rf "$GSM" /srv/gsm-games /root/gsm-games
 

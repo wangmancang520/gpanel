@@ -30,6 +30,7 @@ type Config struct {
 	ImportGSManager string
 	DryRun          bool
 	MoveList        string // file with one work dir per line to move into the data dir
+	RewriteJava     bool   // replace hard-coded GSManager Java paths in start scripts
 }
 
 // Load reads flags, falling back to GPANEL_* environment variables, then defaults.
@@ -48,6 +49,7 @@ func Load() Config {
 	flag.StringVar(&c.ImportGSManager, "import-gsmanager", "", "import instances from the GSManager install in this directory and exit (stop the panel first)")
 	flag.BoolVar(&c.DryRun, "dry-run", false, "with -import-gsmanager: only report what would be imported")
 	flag.StringVar(&c.MoveList, "move-list", "", "with -import-gsmanager: file listing work dirs to move into the data dir")
+	flag.BoolVar(&c.RewriteJava, "rewrite-java", false, "with -import-gsmanager: make start scripts that call GSManager's JDK use the instance's runtime (backups kept)")
 	flag.Parse()
 	if abs, err := filepath.Abs(c.DataDir); err == nil {
 		c.DataDir = abs
