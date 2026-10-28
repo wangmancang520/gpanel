@@ -381,9 +381,11 @@ type javaMapper struct {
 	done                   map[string]javaResult
 }
 
-// resolve maps a GSManager Java version ("java17") onto a GPanel runtime:
-// an existing one with the same major version, else a copy of the JDK that
-// GSManager installed.
+// resolve maps a GSManager Java version ("java17") onto a GPanel runtime,
+// preferring what reproduces the instance's old setup: a panel-managed Java
+// of that major version, else a copy of the JDK GSManager itself ran it
+// with, and only then a system Java (possibly another distribution or a
+// headless JRE) of that major version.
 func (j *javaMapper) resolve(version string) javaResult {
 	if r, ok := j.done[version]; ok {
 		return r
@@ -398,22 +400,35 @@ func (j *javaMapper) lookup(version string) javaResult {
 	if err != nil {
 		return javaResult{note: fmt.Sprintf("无法识别的 Java 版本 %q，将使用系统默认 java", version)}
 	}
+	var system *runtimes.Runtime
 	for _, rt := range j.registry.List("java") {
-		if rt.Major == major {
+		if rt.Major != major {
+			continue
+		}
+		if rt.Managed {
 			return javaResult{rt.ID, fmt.Sprintf("Java %d → 使用 GPanel 已有的 %s", major, rt.Name)}
 		}
+		if system == nil {
+			system = &rt
+		}
+	}
+	// fallback is used when GSManager's own JDK can't be used.
+	fallback := func(why string) javaResult {
+		if system != nil {
+			return javaResult{system.ID, fmt.Sprintf("Java %d → %s，使用系统中的 %s（%s）", major, why, system.Name, system.Home)}
+		}
+		return javaResult{note: fmt.Sprintf("Java %d：%s，请在「运行时」页安装后到实例设置中选择", major, why)}
 	}
 	home := findJavaHome(filepath.Join(j.gsmJavaDir, version))
 	if home == "" {
-		return javaResult{note: fmt.Sprintf("Java %d 未找到：请在「运行时」页安装后，到实例设置中选择", major)}
+		return fallback("GSManager 中没有安装")
 	}
 	name := "gsmanager-" + version
 	if j.dryRun {
 		return javaResult{note: fmt.Sprintf("Java %d → 复制 GSManager 安装的 JDK（%s）", major, home)}
 	}
-	dest := filepath.Join(j.managedDir, name)
-	if err := copyTree(home, dest); err != nil {
-		return javaResult{note: fmt.Sprintf("Java %d：复制 JDK 失败（%v），将使用系统默认 java", major, err)}
+	if err := copyTree(home, filepath.Join(j.managedDir, name)); err != nil {
+		return fallback(fmt.Sprintf("复制 GSManager 的 JDK 失败（%v）", err))
 	}
 	j.registry.Scan(context.Background())
 	for _, rt := range j.registry.List("java") {
@@ -421,7 +436,7 @@ func (j *javaMapper) lookup(version string) javaResult {
 			return javaResult{rt.ID, fmt.Sprintf("Java %d → 已复制 GSManager 的 JDK 为 %s", major, rt.Name)}
 		}
 	}
-	return javaResult{note: fmt.Sprintf("Java %d：已复制但未能识别，将使用系统默认 java", major)}
+	return fallback("复制的 JDK 未能识别")
 }
 
 // findJavaHome finds the directory holding bin/java under dir, a few levels

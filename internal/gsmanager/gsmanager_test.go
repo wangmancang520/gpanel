@@ -232,3 +232,65 @@ func TestPrefixLocalScript(t *testing.T) {
 		}
 	}
 }
+
+// fakeSystemJDK makes a JDK of the given version visible as JAVA_HOME,
+// standing in for a distribution package (CI runners ship several).
+func fakeSystemJDK(t *testing.T, version string) string {
+	t.Helper()
+	home := filepath.Join(t.TempDir(), "system-jdk-"+version)
+	os.MkdirAll(filepath.Join(home, "bin"), 0o755)
+	os.WriteFile(filepath.Join(home, "bin", "java"), []byte("#!/bin/sh\n"), 0o755)
+	os.WriteFile(filepath.Join(home, "release"), []byte(`JAVA_VERSION="`+version+`"`+"\n"), 0o644)
+	t.Setenv("JAVA_HOME", home)
+	return home
+}
+
+func runtimeOf(t *testing.T, data, name string) string {
+	t.Helper()
+	m, err := instance.NewManager(data, events.NewBus())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range m.List() {
+		if s.Name == name {
+			return s.Runtime
+		}
+	}
+	t.Fatalf("%s not imported", name)
+	return ""
+}
+
+func TestImportPrefersGSManagerJDKOverSystemJava(t *testing.T) {
+	fakeSystemJDK(t, "17.0.1")
+	gsm, _ := fakeGSM(t, []map[string]any{
+		{"id": "g5", "name": "mc", "workingDirectory": "mcj", "startCommand": "x", "stopCommand": "stop", "instanceType": "minecraft-java", "javaVersion": "java17"},
+	})
+	data := t.TempDir()
+	if _, err := Import(Options{GSMDir: gsm, DataDir: data}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(data, "runtimes", "java", "gsmanager-java17", "bin", "java")); err != nil {
+		t.Fatalf("GSManager's JDK not copied although it is what the instance ran with: %v", err)
+	}
+	if runtimeOf(t, data, "mc") == "" {
+		t.Error("no runtime selected")
+	}
+}
+
+func TestImportFallsBackToSystemJava(t *testing.T) {
+	fakeSystemJDK(t, "21.0.4")
+	gsm, _ := fakeGSM(t, []map[string]any{ // GSManager has only Java 17 installed
+		{"id": "g5", "name": "mc", "workingDirectory": "mcj", "startCommand": "x", "stopCommand": "stop", "instanceType": "minecraft-java", "javaVersion": "java21"},
+	})
+	data := t.TempDir()
+	var report bytes.Buffer
+	if _, err := Import(Options{GSMDir: gsm, DataDir: data, Report: &report}); err != nil {
+		t.Fatal(err)
+	}
+	if runtimeOf(t, data, "mc") == "" || !strings.Contains(report.String(), "使用系统中的") {
+		t.Errorf("system Java 21 not used:\n%s", report.String())
+	}
+	if _, err := os.Stat(filepath.Join(data, "runtimes", "java", "gsmanager-java21")); !os.IsNotExist(err) {
+		t.Error("copied a JDK that GSManager doesn't have")
+	}
+}
