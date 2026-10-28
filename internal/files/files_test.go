@@ -123,3 +123,29 @@ func TestCopySkipsSymlinks(t *testing.T) {
 		t.Fatal("symlink was copied")
 	}
 }
+
+// A target that appears between Move's existence check and the rename (a game
+// server writing a file) must not be overwritten.
+func TestMoveNoReplaceRace(t *testing.T) {
+	fsys, dir := setup(t)
+	os.WriteFile(filepath.Join(dir, "b", "z.txt"), []byte("appeared"), 0o644)
+	if err := fsys.moveNoReplace("z.txt", filepath.Join("b", "z.txt")); err == nil {
+		t.Fatal("replaced a target that appeared after the check")
+	}
+	if read(t, dir, "b/z.txt") != "appeared" || read(t, dir, "z.txt") != "z" {
+		t.Fatal("files changed by a refused move")
+	}
+
+	// Symlinks move as links, not as their targets.
+	os.Symlink("z.txt", filepath.Join(dir, "link"))
+	if err := fsys.Move([]string{"/link"}, "/a"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.Readlink(filepath.Join(dir, "a", "link")); got != "z.txt" {
+		t.Fatalf("moved symlink points to %q", got)
+	}
+	// Directories still move.
+	if err := fsys.Move([]string{"/a/sub"}, "/b"); err != nil || read(t, dir, "b/sub/y.txt") != "y" {
+		t.Fatalf("directory move: %v", err)
+	}
+}

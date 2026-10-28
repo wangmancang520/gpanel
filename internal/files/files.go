@@ -170,11 +170,34 @@ func (f *FS) Move(paths []string, destDir string) error {
 		if _, err := f.root.Lstat(target); err == nil {
 			return fmt.Errorf("目标已存在：%s", filepath.Base(src))
 		}
-		if err := f.root.Rename(src, target); err != nil {
+		if err := f.moveNoReplace(src, target); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// moveNoReplace renames src to target without replacing a target that
+// appeared after Move's check (a game server writing files, another tab).
+// Non-directories go through a hard link, which fails atomically if target
+// exists; rename(2) can only replace an empty directory with a directory, so
+// directories lose nothing either way. Filesystems without hard links fall
+// back to a plain rename.
+func (f *FS) moveNoReplace(src, target string) error {
+	st, err := f.root.Lstat(src)
+	if err != nil {
+		return err
+	}
+	if !st.IsDir() {
+		err := f.root.Link(src, target)
+		if err == nil {
+			return f.root.Remove(src)
+		}
+		if errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("目标已存在：%s", filepath.Base(target))
+		}
+	}
+	return f.root.Rename(src, target)
 }
 
 // Copy copies each of paths (recursively) into destDir. Name clashes get a
