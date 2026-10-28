@@ -216,10 +216,9 @@ label.check { flex-direction: row; align-items: center; gap: 6px; font-weight: 4
 }
 .term-host { height: calc(100vh - 280px); min-height: 320px; padding: 10px 4px 4px 12px; }
 .term-host { position: relative; }
-.term-fit { height: 100%; position: relative; overflow: hidden; opacity: 0; transition: opacity .35s var(--ease); } /* xterm's parent: no padding, see terminal.js */
-.term-host.revealed .term-fit { opacity: 1; }
-.term-fit.sliding { -webkit-mask-image: linear-gradient(to bottom, transparent, #000 48px); mask-image: linear-gradient(to bottom, transparent, #000 48px); }
-.term-veil { position: absolute; left: 0; right: 0; height: 0; background: #0f1115; opacity: 0; pointer-events: none; z-index: 5; }
+.term-clip { position: relative; height: 100%; overflow: hidden; opacity: 0; transition: opacity .35s var(--ease); }
+.term-host.revealed .term-clip { opacity: 1; }
+.term-fit { position: absolute; left: 0; right: 0; top: 0; } /* xterm's parent: no padding; height and top set by term-motion.js */
 .term-overlay {
   position: absolute; inset: 0; z-index: 6; display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 8px; padding: 24px; text-align: center; color: #8b93a1; pointer-events: none;
