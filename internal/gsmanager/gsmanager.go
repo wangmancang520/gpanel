@@ -172,7 +172,7 @@ func Import(opts Options) (Result, error) {
 		}
 		moving := opts.Move[dir]
 		if moving {
-			say("    将移动到 GPanel 数据目录（gpanel 用户无法访问原位置）")
+			say("    将移动到 GPanel 数据目录") // why is the caller's to say: gpanel-ctl lists unreachable dirs itself
 		}
 		if opts.DryRun {
 			fmt.Fprintln(opts.Dirs, dir)

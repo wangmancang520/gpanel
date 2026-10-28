@@ -162,6 +162,11 @@ func TestImport(t *testing.T) {
 			t.Errorf("report lacks %q", w)
 		}
 	}
+	// Moving is the caller's choice (e.g. all dirs at once): the report must
+	// not claim the original location was inaccessible.
+	if !strings.Contains(report.String(), "将移动到 GPanel 数据目录") || strings.Contains(report.String(), "无法访问") {
+		t.Errorf("move wording:\n%s", report.String())
+	}
 
 	// Running it again imports nothing new.
 	res, err = Import(Options{GSMDir: gsm, DataDir: data})
