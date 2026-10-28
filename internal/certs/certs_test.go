@@ -2,13 +2,17 @@ package certs
 
 import (
 	"crypto/tls"
+	"errors"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestSelfSignedPersistsAndReloads(t *testing.T) {
@@ -124,5 +128,67 @@ func TestListenerServesBothProtocols(t *testing.T) {
 	code, body := get(noFollow, "http://"+addr+"/x?y=1")
 	if code != http.StatusTemporaryRedirect || !strings.HasSuffix(body, "https://"+addr+"/x?y=1") {
 		t.Fatalf("forced redirect: %d %q", code, body)
+	}
+}
+
+// flakyListener fails a few accepts with a non-timeout error (as EMFILE
+// would), then hands out conns until closed.
+type flakyListener struct {
+	net.Listener // nil; only fills out the interface (Addr is never called)
+	fails        int
+	conns        chan net.Conn
+	closeOnce    sync.Once
+}
+
+func (f *flakyListener) Accept() (net.Conn, error) {
+	if f.fails > 0 {
+		f.fails--
+		return nil, errors.New("accept: too many open files")
+	}
+	c, ok := <-f.conns
+	if !ok {
+		return nil, net.ErrClosed
+	}
+	return c, nil
+}
+
+func (f *flakyListener) Close() error {
+	f.closeOnce.Do(func() { close(f.conns) })
+	return nil
+}
+
+func TestListenerSurvivesTransientAcceptErrors(t *testing.T) {
+	m, _ := New(t.TempDir(), false)
+	inner := &flakyListener{fails: 5, conns: make(chan net.Conn)}
+	l := m.wrap(inner)
+	defer l.Close()
+
+	server, client := net.Pipe()
+	defer client.Close()
+	go func() {
+		inner.conns <- server
+		client.Write([]byte("GET / HTTP/1.1\r\n\r\n"))
+	}()
+
+	type result struct {
+		c   net.Conn
+		err error
+	}
+	got := make(chan result, 1)
+	go func() { c, err := l.Accept(); got <- result{c, err} }()
+	select {
+	case r := <-got:
+		if r.err != nil {
+			t.Fatalf("listener gave up after transient errors: %v", r.err)
+		}
+		r.c.Close()
+	case <-time.After(5 * time.Second):
+		t.Fatal("no connection accepted after transient errors")
+	}
+
+	// Closing still ends Accept with net.ErrClosed.
+	l.Close()
+	if _, err := l.Accept(); !errors.Is(err, net.ErrClosed) {
+		t.Fatalf("Accept after Close = %v, want net.ErrClosed", err)
 	}
 }

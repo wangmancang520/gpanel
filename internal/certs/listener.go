@@ -3,6 +3,8 @@ package certs
 import (
 	"bufio"
 	"crypto/tls"
+	"errors"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -16,9 +18,13 @@ func (m *Manager) Listen(addr string) (net.Listener, error) {
 	if err != nil {
 		return nil, err
 	}
+	return m.wrap(inner), nil
+}
+
+func (m *Manager) wrap(inner net.Listener) *muxListener {
 	l := &muxListener{Listener: inner, m: m, cfg: m.TLSConfig(), conns: make(chan net.Conn), done: make(chan struct{})}
 	go l.acceptLoop()
-	return l, nil
+	return l
 }
 
 type muxListener struct {
@@ -33,25 +39,42 @@ type muxListener struct {
 	err error // why the inner listener stopped, if not via Close
 }
 
-const sniffTimeout = 10 * time.Second
+const (
+	sniffTimeout   = 10 * time.Second
+	maxAcceptDelay = time.Second
+	minAcceptDelay = 5 * time.Millisecond
+)
 
 func (l *muxListener) acceptLoop() {
+	var delay time.Duration
 	for {
 		c, err := l.Listener.Accept()
 		if err != nil {
-			if ne, ok := err.(net.Error); ok && ne.Timeout() {
-				continue
-			}
 			select {
 			case <-l.done: // closed by us; Accept reports net.ErrClosed
+				return
 			default:
+			}
+			if errors.Is(err, net.ErrClosed) {
 				l.mu.Lock()
 				l.err = err
 				l.mu.Unlock()
+				l.Close()
+				return
 			}
-			l.Close()
-			return
+			// Anything else (EMFILE, ECONNABORTED, ...) is transient. Back off
+			// and retry like http.Server does: giving up would stop the panel,
+			// and under systemd every game server with it.
+			delay = min(max(delay*2, minAcceptDelay), maxAcceptDelay)
+			log.Printf("接受连接失败，%v 后重试: %v", delay, err)
+			select {
+			case <-time.After(delay):
+			case <-l.done:
+				return
+			}
+			continue
 		}
+		delay = 0
 		// Sniff off the accept loop so a slow client can't stall others.
 		go l.classify(c)
 	}
