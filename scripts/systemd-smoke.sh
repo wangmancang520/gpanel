@@ -115,10 +115,51 @@ check "维护脚本随版本更新"        'grep -q "smoke-marker v0.0.3" $CTL'
 check "已是该版本时不重复更新"    '$CTL update -y --version v0.0.3 2>&1 | grep -q 已经是最新版本'
 OUT=$($CTL update -y --version v0.0.4 2>&1); RC=$?; echo "$OUT"
 check "校验失败拒绝更新"          '[ $RC != 0 ] && echo "$OUT" | grep -q 校验失败 && [ "$(ver)" = v0.0.3 ]'
-kill $HTTP; unset GPANEL_RELEASES
+
+# A download mirror ("GitHub 加速前缀") only supplies files: SHA256SUMS still
+# comes from the release itself, so a mirror can't vouch for its own tampering.
+mkdir -p "$REL/v0.0.5"
+cp "$DIR/gpanel-v2" "$REL/v0.0.5/gpanel-linux-$ARCH"
+cp "$SCRIPT" "$REL/v0.0.5/install.sh"
+(cd "$REL/v0.0.5" && sha256sum * >SHA256SUMS)
+MIR="$WORK/mirror"
+mkdir -p "$MIR"
+{ cat "$DIR/gpanel-v2"; echo tampered; } >"$MIR/gpanel-linux-$ARCH"
+cp "$SCRIPT" "$MIR/install.sh"
+(cd "$MIR" && sha256sum "gpanel-linux-$ARCH" install.sh >SHA256SUMS) # consistent with the tampered build
+cat >"$WORK/mirror.py" <<'EOF'
+# Serves files by basename, like a prefix proxy in front of GitHub would.
+import http.server, os, sys
+root = sys.argv[1]
+class H(http.server.SimpleHTTPRequestHandler):
+    def translate_path(self, path):
+        return os.path.join(root, os.path.basename(path.split("?")[0]))
+    def log_message(self, *args):
+        pass
+http.server.ThreadingHTTPServer(("127.0.0.1", 8766), H).serve_forever()
+EOF
+python3 "$WORK/mirror.py" "$MIR" &
+MIRP=$!
+wait_for 5 'curl -s -o /dev/null http://127.0.0.1:8766/x'
+M=http://127.0.0.1:8766/
+OUT=$($CTL update -y --version v0.0.5 --mirror $M 2>&1); RC=$?; echo "$OUT"
+check "镜像篡改的程序被拒绝"      '[ $RC != 0 ] && echo "$OUT" | grep -q 校验失败 && [ "$(ver)" = v0.0.3 ]'
+cp "$REL/v0.0.5/gpanel-linux-$ARCH" "$MIR/"
+(cd "$MIR" && sha256sum "gpanel-linux-$ARCH" install.sh >SHA256SUMS)
+OUT=$($CTL update -y --version v0.0.5 --mirror $M 2>&1); echo "$OUT"
+check "镜像提供正版文件时可更新"  '[ "$(ver)" = v0.0.2 ] && echo "$OUT" | grep -q 校验通过'
+
+# GitHub unreachable: the mirror's own checksums are refused unless trusted.
+export GPANEL_RELEASES=http://127.0.0.1:9
+OUT=$($CTL update -y --version v0.0.6 --mirror $M 2>&1); RC=$?; echo "$OUT"
+check "无法直连时不信任镜像校验"  '[ $RC != 0 ] && echo "$OUT" | grep -q GPANEL_TRUST_MIRROR && [ "$(ver)" = v0.0.2 ]'
+OUT=$(GPANEL_TRUST_MIRROR=1 $CTL update -y --version v0.0.6 --mirror $M 2>&1); RC=$?; echo "$OUT"
+check "明确信任后可用镜像校验"    '[ $RC = 0 ] && echo "$OUT" | grep -q 校验通过'
+kill $MIRP $HTTP; unset GPANEL_RELEASES
 
 # --- backup, stop/start
 check "备份"                      '$CTL backup -y --out $WORK/b.tgz >/dev/null 2>&1 && tar -tzf $WORK/b.tgz | grep -q "var/lib/gpanel/users.json"'
+check "备份文件仅 root 可读"      '[ "$(stat -c %a $WORK/b.tgz)" = 600 ]'
 $CTL stop -y >/dev/null 2>&1
 check "停止服务后游戏进程已退出"  '! systemctl is-active --quiet gpanel && ! pgrep -u gpanel -f $FAKE >/dev/null'
 check "面板优雅关闭了实例"        'journalctl -u gpanel --no-pager -o cat | grep -q 正在关闭'
@@ -128,8 +169,10 @@ check "启动"                      '$CTL start -y >/dev/null 2>&1 && systemctl 
 $CTL uninstall -y >/dev/null 2>&1
 check "卸载移除程序和服务"        '[ ! -e /usr/local/bin/gpanel ] && [ ! -e /etc/systemd/system/gpanel.service ] && [ ! -e $CTL ]'
 check "卸载默认保留数据"          '[ -f /var/lib/gpanel/users.json ]'
-"$SCRIPT" install -y --local "$DIR/gpanel-v1" --port 24444 --bind 127.0.0.1 >/dev/null 2>&1
+OUT=$("$SCRIPT" install -y --local "$DIR/gpanel-v1" --port 24444 --bind 127.0.0.1 2>&1); echo "$OUT"
 check "重新安装沿用原有数据"      'wait_for 10 "login \"$NEWPW\""'
+# The journal still holds the first install's "初始密码" line; it's stale.
+check "重新安装不显示旧初始密码"  '! echo "$OUT" | grep -q "$PW" && echo "$OUT" | grep -q 沿用'
 $CTL uninstall -y --purge >/dev/null 2>&1
 check "彻底卸载删除数据和用户"    '[ ! -e /var/lib/gpanel ] && [ ! -e /etc/gpanel ] && ! id gpanel >/dev/null 2>&1'
 

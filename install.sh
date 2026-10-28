@@ -224,6 +224,28 @@ asset_url() {
   fi
 }
 
+# sums_url VERSION: SHA256SUMS always comes straight from GitHub (or the API
+# for private forks), never through the download mirror: a proxy able to swap
+# the binary could just as well swap a checksum file it also served.
+sums_url() {
+  if [ -n "$TOKEN" ]; then asset_url "$1" SHA256SUMS; else echo "$RELEASES/download/$1/SHA256SUMS"; fi
+}
+
+# fetch_sums VERSION DEST: falls back to the mirror only with the admin's
+# explicit consent (prompt, or GPANEL_TRUST_MIRROR=1 when non-interactive).
+fetch_sums() {
+  local ver=$1 dest=$2
+  fetch "$(sums_url "$ver")" "$dest" quiet && return 0
+  { [ -n "$MIRROR" ] && [ -z "$TOKEN" ]; } || return 1
+  warn "无法直接从 GitHub 获取校验文件。改从加速前缀获取时，SHA-256 只能发现文件损坏，无法防止加速服务篡改程序。"
+  if [ "${GPANEL_TRUST_MIRROR:-}" = 1 ] || { [ "$YES" = 0 ] && confirm "仍然信任加速前缀 $MIRROR 并继续？" n; }; then
+    fetch "$(asset_url "$ver" SHA256SUMS)" "$dest" quiet
+  else
+    err "已停止。确认信任该加速服务后，可设置 GPANEL_TRUST_MIRROR=1 再运行"
+    return 1
+  fi
+}
+
 # get_release VERSION DIR: downloads the binary (and install.sh) into DIR and
 # verifies them against SHA256SUMS.
 get_release() {
@@ -232,7 +254,7 @@ get_release() {
   url="$(asset_url "$ver" "$name")"
   [ -n "$url" ] || die "版本 $ver 中没有 $name"
   fetch "$url" "$dir/gpanel" || die "下载失败：$url"
-  fetch "$(asset_url "$ver" SHA256SUMS)" "$dir/SHA256SUMS" quiet || die "下载校验文件失败"
+  fetch_sums "$ver" "$dir/SHA256SUMS" || die "下载校验文件失败"
   fetch "$(asset_url "$ver" install.sh)" "$dir/install.sh" quiet || warn "未能下载该版本的维护脚本，继续使用当前脚本"
   local want got
   want="$(awk -v n="$name" '$2 == n || $2 == "*"n {print $1}' "$dir/SHA256SUMS")"
@@ -302,10 +324,12 @@ health() {
   return 1
 }
 
+# initial_password SINCE: the admin password the panel logged on first start,
+# reading only log lines from SINCE on, so an older install's line never shows.
 initial_password() {
-  local i line=""
+  local since=$1 i line=""
   for ((i = 0; i < 30; i++)); do
-    line="$(journalctl -u "$SVC" --no-pager -o cat 2>/dev/null | grep -o '初始密码 [0-9a-f]*' | tail -1 || true)"
+    line="$(journalctl -u "$SVC" --since "$since" --no-pager -o cat 2>/dev/null | grep -o '初始密码 [0-9a-f]*' | tail -1 || true)"
     [ -n "$line" ] && break
     sleep 0.5
   done
@@ -381,22 +405,31 @@ cmd_install() {
   [ -x "$CTL" ] || warn "未能安装 gpanel-ctl 维护命令（请从 Releases 下载 install.sh 后运行 sudo bash install.sh）"
   ok "已安装 $(current_version) 到 $BIN"
 
+  # Data kept from an earlier install already has accounts; the panel only
+  # creates (and logs) an initial password when there are none.
+  local fresh=1 since
+  [ -f "$DATA/users.json" ] && fresh=0
   step "启动服务"
   systemctl enable "$SVC" >/dev/null 2>&1
+  since="$(date '+%Y-%m-%d %H:%M:%S')"
   svc_start start
   health || { journalctl -u "$SVC" --no-pager -n 20 >&2; die "面板没有正常启动，以上是最近的日志"; }
   ok "服务已启动"
   [ "$bind" = 0.0.0.0 ] && open_firewall "$port"
 
-  local pw
-  pw="$(initial_password)"
+  local pw=""
+  [ "$fresh" = 1 ] && pw="$(initial_password "$since")"
   printf '\n'
   rule
   printf '  %s🎉 安装完成%s\n\n' "$GRN$B" "$R"
   local u
   while read -r u; do [ -n "$u" ] && printf '  访问地址   %s%s%s\n' "$B" "$u" "$R"; done < <(panel_urls)
-  printf '  用户名     %sadmin%s\n' "$B" "$R"
-  printf '  初始密码   %s%s%s\n' "$B$YLW" "${pw:-（未能读取，请运行 sudo gpanel-ctl reset-password）}" "$R"
+  if [ "$fresh" = 1 ]; then
+    printf '  用户名     %sadmin%s\n' "$B" "$R"
+    printf '  初始密码   %s%s%s\n' "$B$YLW" "${pw:-（未能读取，请运行 sudo gpanel-ctl reset-password）}" "$R"
+  else
+    printf '  账号       沿用 %s 中已有的账号和密码%s（忘记密码可运行 sudo gpanel-ctl reset-password）%s\n' "$DATA" "$D" "$R"
+  fi
   printf '\n  %s登录后请在「安全」页修改密码；对公网开放时建议在同一页配置 HTTPS。%s\n' "$D" "$R"
   printf '  %s以后运行 %ssudo gpanel-ctl%s%s 打开维护菜单（更新、重置密码、卸载等）。%s\n' "$D" "$R$B" "$R" "$D" "$R"
   rule
@@ -462,9 +495,10 @@ update_ctl_only() {
   [ -n "$LOCAL" ] && return 0
   local tmp
   tmp="$(work_dir)"
+  # Optional step: checksums only from the direct source, never prompting.
   if fetch "$(asset_url "$1" install.sh)" "$tmp/install.sh" quiet 2>/dev/null &&
-    fetch "$(asset_url "$1" SHA256SUMS)" "$tmp/SHA256SUMS" quiet 2>/dev/null &&
-    [ "$(awk '$2 == "install.sh" {print $1}' "$tmp/SHA256SUMS")" = "$(sha256sum "$tmp/install.sh" | awk '{print $1}')" ] &&
+    fetch "$(sums_url "$1")" "$tmp/SHA256SUMS" quiet 2>/dev/null &&
+    [ "$(awk '$2 == "install.sh" || $2 == "*install.sh" {print $1}' "$tmp/SHA256SUMS")" = "$(sha256sum "$tmp/install.sh" | awk '{print $1}')" ] &&
     ! cmp -s "$tmp/install.sh" "$CTL"; then
     install_ctl "$tmp/install.sh" && ok "维护脚本已更新到 $1 附带的版本"
   fi
@@ -655,7 +689,10 @@ cmd_backup() {
   running && warn "面板运行中：正在写入的世界存档可能不完整，重要备份建议先在面板中停止实例。"
   confirm "开始备份？" y || return 0
   step "打包中…"
-  tar -czf "$out" --exclude="${DATA#/}/runtimes" -C / "${DATA#/}" "${ETC#/}" 2>/dev/null || die "备份失败"
+  # The archive holds TLS keys and DNS API secrets: create it owner-only from
+  # the start (a pre-existing file would keep its old mode, so remove it).
+  rm -f "$out"
+  (umask 077 && tar -czf "$out" --exclude="${DATA#/}/runtimes" -C / "${DATA#/}" "${ETC#/}") 2>/dev/null || die "备份失败"
   chmod 600 "$out"
   ok "备份完成：$out（$(du -h "$out" | awk '{print $1}')）"
 }
