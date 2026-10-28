@@ -1,29 +1,33 @@
-import { api, attempt, stateLabels, isAdmin, grant } from '../api.js';
+import { api, attempt, stateLabels, isAdmin, grant, playersChip } from '../api.js';
 import { TerminalPane } from './terminal.js';
 import { FileManager } from './files.js';
 import { InstanceForm } from './instance-form.js';
+import { LogViewer } from './logs.js';
 
 // Instance detail page. Add a tab: one entry in `tabs` + one v-if branch;
 // `can` says who sees it (the server enforces the same rules).
 const tabs = [
   { key: 'terminal', label: '终端', icon: 'terminal', can: (g) => g.console },
   { key: 'files', label: '文件', icon: 'folder', can: (g) => g.files },
+  { key: 'logs', label: '日志', icon: 'file', can: (g) => g.console },
   { key: 'settings', label: '设置', icon: 'sliders', can: () => isAdmin() },
 ];
 
 export const InstanceDetail = {
-  components: { TerminalPane, FileManager, InstanceForm },
+  components: { TerminalPane, FileManager, InstanceForm, LogViewer },
   props: { id: String, tab: String },
   setup(props) {
     const { ref, computed, watchEffect, onMounted, onUnmounted } = Vue;
     const inst = ref(null);
+    const mc = ref(null); // Minecraft status: players online
+    const loadStatus = async () => { mc.value = await api('GET', `/api/instances/${props.id}/status`).catch(() => mc.value); };
     const deleteFiles = ref(false);
     const load = async () => {
       try { inst.value = await api('GET', `/api/instances/${props.id}`); }
       catch (e) { if (!inst.value) location.hash = '#/instances'; }
     };
     let timer;
-    onMounted(() => { load(); timer = setInterval(load, 5000); });
+    onMounted(() => { load(); loadStatus(); timer = setInterval(() => { load(); loadStatus(); }, 5000); });
     onUnmounted(() => clearInterval(timer));
 
     const act = (action) => attempt(async () => {
@@ -46,7 +50,8 @@ export const InstanceDetail = {
       const keys = visibleTabs.value.map((t) => t.key);
       if (keys.length && !keys.includes(props.tab)) location.replace(`#/instances/${props.id}/${keys[0]}`);
     });
-    return { inst, tabs: visibleTabs, g, isAdmin, act, remove, onStatus, running, deleteFiles, stateLabels, load };
+    const chip = computed(() => playersChip(mc.value));
+    return { inst, tabs: visibleTabs, g, isAdmin, act, remove, onStatus, running, deleteFiles, stateLabels, load, chip };
   },
   template: `
     <div class="page detail" v-if="inst">
@@ -55,6 +60,7 @@ export const InstanceDetail = {
           <a href="#/instances" class="crumb-link">实例</a><span class="muted">/</span>
           <h1>{{ inst.name }}</h1>
           <span class="badge" :class="inst.state">{{ stateLabels[inst.state] }}</span>
+          <span v-if="chip" class="players-chip" :class="{ starting: chip.starting, empty: chip.empty }" :title="chip.title"><Icon name="users" :size="14" />{{ chip.text }}</span>
           <span v-if="inst.pid" class="muted small">PID {{ inst.pid }}</span>
         </div>
         <div class="row" v-if="g.console">
@@ -73,6 +79,7 @@ export const InstanceDetail = {
       <Transition name="page" mode="out-in">
       <TerminalPane v-if="tab === 'terminal' && g.console" :id="id" @status="onStatus" />
       <FileManager v-else-if="tab === 'files' && g.files" :id="id" />
+      <LogViewer v-else-if="tab === 'logs' && g.console" :id="id" />
       <div v-else-if="tab === 'settings' && isAdmin()" class="card">
         <InstanceForm :initial="inst" :key="inst.id" @saved="load" />
         <hr>

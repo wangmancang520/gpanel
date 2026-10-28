@@ -1,4 +1,4 @@
-import { api, attempt, stateLabels, formatSize, grant } from '../api.js';
+import { api, attempt, stateLabels, formatSize, grant, playersChip } from '../api.js';
 
 // Home page: host configuration, live load and the running instances.
 // Data comes from /api/system (sampled every 2s server-side) and /api/instances.
@@ -71,15 +71,18 @@ export const Dashboard = {
     const { ref, computed, onMounted, onUnmounted } = Vue;
     const sys = ref(null);
     const instances = ref([]);
+    const status = ref({}); // Minecraft players by instance ID
     const now = ref(Date.now());
 
     const load = async () => {
-      const [s, list] = await Promise.all([
+      const [s, list, st] = await Promise.all([
         api('GET', '/api/system').catch(() => null),
         api('GET', '/api/instances').catch(() => null),
+        api('GET', '/api/status').catch(() => null),
       ]);
       if (s) sys.value = s;
       if (list) instances.value = list;
+      if (st) status.value = st;
       now.value = Date.now();
     };
     let timer;
@@ -116,6 +119,7 @@ export const Dashboard = {
       sys, instances, running, crashed, cpuPoints, memPoints, usage, stop, now,
       cores, coreSeries, shownCores, allCores, busiest, hot, CORE_LIMIT,
       pct, fmtPct, formatSize, formatDuration, stateLabels, grant,
+      chip: (id) => playersChip(status.value[id]),
     };
   },
   template: `
@@ -179,11 +183,12 @@ export const Dashboard = {
         <h2>运行中的实例</h2>
         <div v-if="!running.length" class="empty"><Icon name="server" :size="32" /><p>没有正在运行的实例。<a href="#/instances">去启动一个</a></p></div>
         <div v-else class="table-scroll"><table class="table">
-          <thead><tr><th>名称</th><th>状态</th><th>PID</th><th>运行时长</th><th class="num">CPU</th><th class="num">内存</th><th></th></tr></thead>
+          <thead><tr><th>名称</th><th>状态</th><th>玩家</th><th>PID</th><th>运行时长</th><th class="num">CPU</th><th class="num">内存</th><th></th></tr></thead>
           <tbody>
             <tr v-for="it in running" :key="it.id">
               <td class="nowrap"><a :href="'#/instances/' + it.id" class="dir">{{ it.name }}</a></td>
               <td><span class="badge" :class="it.state">{{ stateLabels[it.state] }}</span></td>
+              <td class="nowrap"><span v-if="chip(it.id)" class="players-chip" :class="{ starting: chip(it.id).starting, empty: chip(it.id).empty }" :title="chip(it.id).title"><Icon name="users" :size="14" />{{ chip(it.id).text }}</span><span v-else class="muted">—</span></td>
               <td class="muted">{{ it.pid || '—' }}</td>
               <td class="nowrap">{{ it.startedAt ? formatDuration(now - new Date(it.startedAt)) : '—' }}</td>
               <td class="num">{{ usage(it.id) ? fmtPct(usage(it.id).cpu) : '—' }}</td>

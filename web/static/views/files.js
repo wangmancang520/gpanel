@@ -373,37 +373,80 @@ export const FileManager = {
     }
 
     // ---- upload (button, or files dropped from the desktop)
+    // Files go up in chunks (see internal/files/upload.go). A dropped
+    // connection retries from the offset the server has; uploading the same
+    // file again after a reload or panel restart continues where it stopped.
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    function putChunk(url, blob, onProgress, signal) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('PUT', url);
+        xhr.upload.onprogress = (e) => onProgress(e.loaded);
+        xhr.onload = () => {
+          let body = {};
+          try { body = JSON.parse(xhr.responseText); } catch {}
+          if (xhr.status === 401) window.dispatchEvent(new Event('gpanel:unauthorized'));
+          if (xhr.status < 300) return resolve(body);
+          reject(Object.assign(new Error(body.error || xhr.statusText), { status: xhr.status, body }));
+        };
+        xhr.onerror = () => reject(Object.assign(new Error('网络错误'), { status: 0 }));
+        xhr.onabort = () => reject(Object.assign(new Error('已取消'), { aborted: true }));
+        signal.addEventListener('abort', () => xhr.abort(), { once: true });
+        xhr.send(blob);
+      });
+    }
+    async function uploadOne(file, dest, onProgress, signal, track) {
+      const spec = { path: dest, name: file.name, size: file.size, modified: file.lastModified };
+      const begin = () => api('POST', `${base.value}/uploads`, spec);
+      let { id, offset, chunk } = await begin();
+      track.id = id; track.spec = spec; // for cancelling
+      if (offset > 0) toast(`${file.name}：从 ${Math.round((offset / file.size) * 100)}% 处继续上传`, 'info');
+      const qs = q({ ...spec, path: dest });
+      for (let failures = 0; ;) {
+        if (signal.aborted) throw Object.assign(new Error('已取消'), { aborted: true });
+        const end = Math.min(offset + chunk, file.size);
+        onProgress(offset);
+        try {
+          const r = await putChunk(`${base.value}/uploads/${id}?${qs}&offset=${offset}`, file.slice(offset, end), (n) => onProgress(offset + n), signal);
+          offset = r.offset;
+          failures = 0;
+          if (r.done) return;
+        } catch (e) {
+          if (e.aborted) throw e;
+          if (e.status === 409 && typeof e.body?.offset === 'number') { offset = e.body.offset; continue; }
+          if (e.status && e.status !== 408 && e.status < 500) throw e; // refused: don't retry
+          if (++failures > 6) throw new Error('网络多次中断，已暂停。重新上传同一个文件会从断点继续');
+          await sleep(Math.min(1000 * 2 ** (failures - 1), 15000));
+          try { ({ offset } = await begin()); } catch {} // where the server got to
+        }
+      }
+    }
     async function uploadFiles(files, dest = path.value) {
       files = [...files].filter(Boolean);
-      if (!files.length) return;
+      if (!files.length || upload.value) return;
       if (dest === path.value) {
         const clash = files.filter((f) => entries.value.some((e) => e.name === f.name && !e.isDir));
         if (clash.length && !(await confirmAction(`覆盖 ${clash.length} 个同名文件？`, clash.slice(0, 5).map((f) => f.name).join('、') + (clash.length > 5 ? ' 等' : ''), { okText: '覆盖', danger: true }))) return;
       }
-      const fd = new FormData();
-      for (const f of files) fd.append('file', f, f.name);
       const total = files.reduce((n, f) => n + f.size, 0);
-      upload.value = { label: files.length === 1 ? files[0].name : `${files.length} 个文件`, loaded: 0, total };
+      const ctrl = new AbortController();
+      upload.value = { label: files.length === 1 ? files[0].name : `${files.length} 个文件`, loaded: 0, total, cancel: () => ctrl.abort() };
+      let done = 0;
+      const track = {}; // the upload in progress: { id, spec }
       try {
-        await new Promise((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', `${base.value}/upload?${q({ path: dest })}`);
-          xhr.upload.onprogress = (e) => { if (upload.value) upload.value.loaded = e.loaded; };
-          xhr.onload = () => {
-            if (xhr.status === 401) window.dispatchEvent(new Event('gpanel:unauthorized'));
-            if (xhr.status < 300) return resolve();
-            let msg = xhr.statusText;
-            try { msg = JSON.parse(xhr.responseText).error || msg; } catch {}
-            reject(new Error(msg));
-          };
-          xhr.onerror = () => reject(new Error('网络错误，上传中断'));
-          xhr.send(fd);
-        });
+        for (const f of files) {
+          await uploadOne(f, dest, (n) => { if (upload.value) upload.value.loaded = done + n; }, ctrl.signal, track);
+          done += f.size;
+        }
         toast(`已上传 ${files.length} 个文件${dest === path.value ? '' : '到 ' + baseName(dest)}`, 'ok');
         await load();
         if (dest === path.value) selected.value = new Set(files.map((f) => f.name));
       } catch (e) {
-        toast('上传失败：' + e.message, 'error');
+        if (e.aborted) {
+          if (track.id) api('DELETE', `${base.value}/uploads/${track.id}?${q(track.spec)}`).catch(() => {});
+          toast('已取消上传', 'info');
+        } else toast('上传失败：' + e.message, 'error');
+        if (done) load();
       } finally {
         upload.value = null;
       }
@@ -713,6 +756,7 @@ export const FileManager = {
         <span v-if="upload" class="fm-upload">
           <span class="ellipsis">上传 {{ upload.label }}</span>
           <span class="progress"><span :style="{ width: uploadPct + '%' }"></span></span>{{ uploadPct }}%
+          <button class="link" @click="upload.cancel()" title="取消上传"><Icon name="x" :size="14" />取消</button>
         </span>
         <span class="hide-sm fm-hint">双击打开 · 拖动框选 · 右键更多操作 · 按住 Ctrl 拖动为复制</span>
       </div>

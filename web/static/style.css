@@ -729,3 +729,35 @@ code.secret { font-size: 18px; letter-spacing: .04em; padding: 8px 12px; backgro
 @media (max-width: 640px) {
   .grant-row { grid-template-columns: 1fr; gap: 4px; }
 }
+
+/* ---- players online */
+.players-chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; padding: 1px 8px; border-radius: 999px;
+  color: var(--ok); background: color-mix(in srgb, var(--ok) 12%, transparent); cursor: default; white-space: nowrap; }
+.players-chip.empty { color: var(--muted); background: var(--surface-2); }
+.players-chip.starting { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.players-chip.push-right { margin-left: auto; }
+
+/* ---- log viewer */
+.log-viewer { padding: 0; overflow: hidden; display: flex; flex-direction: column; }
+.log-toolbar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+.log-toolbar select { width: auto; max-width: 420px; flex: 1 1 260px; }
+.log-toolbar .log-search { flex: 1 1 180px; width: auto; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.log-lines { height: calc(100vh - 330px); min-height: 300px; overflow: auto; background: #0f1115; color: #d8dee9; font-size: 12.5px; line-height: 1.5; padding: 6px 0; }
+.log-line { display: flex; gap: 12px; padding: 0 12px; white-space: pre-wrap; word-break: break-all; }
+.log-line:hover { background: rgba(255, 255, 255, .04); }
+.log-line .ln { flex-shrink: 0; width: 6ch; text-align: right; color: #5b6170; user-select: none; }
+.log-line.warn .lt { color: #e5c07b; }
+.log-line.err .lt { color: #f07178; }
+.log-line mark { background: #3d6bd8; color: #fff; border-radius: 2px; }
+.log-more { text-align: center; padding: 4px 0 8px; }
+.log-more .icon.up { transform: rotate(-90deg); }
+.log-lines .empty { color: #8b93a1; }
+.log-status { padding: 6px 12px; border-top: 1px solid var(--border); }
+@media (max-width: 640px) {
+  .log-lines { height: 60vh; }
+  .log-line .ln { width: 4ch; }
+}

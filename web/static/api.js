@@ -63,6 +63,15 @@ export async function attempt(fn, okMsg) {
   }
 }
 
+// Players online for a Minecraft status (internal/mcstatus), as chip text and
+// a tooltip listing names; null when there is nothing to show.
+export function playersChip(st) {
+  if (!st || !st.minecraft || !st.running) return null;
+  if (!st.reachable) return { text: '启动中', title: st.error || '服务器尚未响应', starting: true };
+  const names = st.players?.length ? st.players.join('、') : '暂无玩家在线';
+  return { text: `${st.online}/${st.max}`, title: `${names}${st.version ? '\n版本 ' + st.version : ''}`, empty: !st.online };
+}
+
 export const stateLabels = {
   stopped: '已停止', starting: '启动中', running: '运行中', stopping: '停止中', crashed: '已崩溃',
 };

@@ -1,4 +1,4 @@
-import { api, attempt, stateLabels, isAdmin, grant } from '../api.js';
+import { api, attempt, stateLabels, isAdmin, grant, playersChip } from '../api.js';
 import { InstanceForm } from './instance-form.js';
 
 export const InstanceList = {
@@ -8,10 +8,14 @@ export const InstanceList = {
     const items = ref([]);
     const loaded = ref(false);
     const creating = ref(false);
+    const status = ref({}); // Minecraft players by instance ID
     const load = async () => {
-      items.value = await attempt(() => api('GET', '/api/instances')) || items.value;
+      const [list, st] = await Promise.all([attempt(() => api('GET', '/api/instances')), api('GET', '/api/status').catch(() => null)]);
+      items.value = list || items.value;
+      if (st) status.value = st;
       loaded.value = true;
     };
+    const chip = (id) => playersChip(status.value[id]);
     let timer;
     onMounted(() => { load(); timer = setInterval(load, 3000); });
     onUnmounted(() => clearInterval(timer));
@@ -21,7 +25,7 @@ export const InstanceList = {
       await load();
     });
     const created = (cfg) => { creating.value = false; location.hash = `#/instances/${cfg.id}`; };
-    return { items, loaded, creating, act, created, stateLabels, isAdmin, grant };
+    return { items, loaded, creating, act, created, stateLabels, isAdmin, grant, chip };
   },
   template: `
     <div class="page">
@@ -44,6 +48,7 @@ export const InstanceList = {
               <a class="button" :href="'#/instances/' + it.id"><Icon name="terminal" />控制台</a>
             </template>
             <a v-else class="button" :href="'#/instances/' + it.id + '/files'"><Icon name="folder" />文件</a>
+            <span v-if="chip(it.id)" class="players-chip push-right" :class="{ starting: chip(it.id).starting, empty: chip(it.id).empty }" :title="chip(it.id).title"><Icon name="users" :size="14" />{{ chip(it.id).text }}</span>
           </div>
         </div>
       </div>

@@ -106,6 +106,13 @@ sudo gpanel-ctl migrate-gsmanager      # 或菜单中的「从 GSManager 迁移�
 
 > **安全边界**：所有游戏服务器以同一个系统用户 `gpanel` 运行。拥有某个实例「文件管理」权限的人可以修改服务器文件和模组，从而以 `gpanel` 身份执行任意代码、读写其他实例甚至面板数据。所以按实例授权是**组织上的划分，不是安全隔离**：只把文件权限授予你信任的人。只给「控制台与启停」相对安全（但也取决于游戏本身的控制台命令）。
 
+## 文件、日志与玩家
+
+- **大文件上传**：按 8 MB 分片上传，网络中断会自动重试；刷新页面后重新选择同一个文件会从断点继续。未完成的分片以隐藏文件 `.gpanel-upload-*` 存在目标目录，7 天后自动清理；上传中可以取消。
+- **解压保护**：压缩包最多 20 万个条目，且解压后的总大小加 1 GiB 余量必须小于磁盘剩余空间，否则拒绝解压。
+- **历史日志**：实例详情页「日志」标签浏览 `logs/` 和 `crash-reports/` 下的日志（含轮转的 `.log.gz`），可按级别（警告、错误）筛选、搜索、向前翻页和下载原始文件。有「控制台与启停」权限即可查看。
+- **在线玩家**（Minecraft Java 版）：有 `server.properties` 的实例会显示在线人数和上限，悬停可看玩家名单、版本和 MOTD。人数来自对服务器端口的 Server List Ping，名单来自 `logs/latest.log` 的进出记录；服务器启动中（端口未响应）显示「启动中」。
+
 ## 从源码运行
 
 ```bash
@@ -159,7 +166,9 @@ internal/
   auth/              登录、会话、CSRF 校验；账号与角色（users.go）；所有接口的权限表（policy.go）
   pty/               伪终端抽象；pty_unix.go 实现，pty_windows.go 待实现 (ConPTY)
   instance/          实例配置、生命周期、崩溃重启、终端 WebSocket
-  files/             基于 os.Root 的沙箱文件管理
+  files/             基于 os.Root 的沙箱文件管理；断点续传上传（upload.go）
+  serverlogs/        实例日志文件的浏览、筛选与搜索
+  mcstatus/          Minecraft 在线人数与玩家名单（Server List Ping + latest.log）
   runtimes/          运行时检测（Java），通过 LaunchHook 注入启动参数
   system/            主机配置与负载采样（概览页），按进程组统计实例 CPU / 内存
   certs/             面板自身的 HTTPS 证书管理；同一端口同时服务 HTTP 和 HTTPS
@@ -222,7 +231,6 @@ data/                运行时数据：users.json、instances.json、instances/<
 ## 待办
 
 - Windows ConPTY 实现
-- 大文件分块/断点续传上传；解压大小限制
 - 会话持久化（目前重启面板需重新登录）
 - 操作日志（谁在什么时候启停了服务器、改了哪些文件）
 - 实例间的系统级隔离：每个实例使用独立的 Linux 用户运行，让「文件管理」权限也不能越权
