@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +20,7 @@ import (
 	"gpanel/internal/config"
 	"gpanel/internal/events"
 	"gpanel/internal/files"
+	"gpanel/internal/gsmanager"
 	"gpanel/internal/httpx"
 	"gpanel/internal/instance"
 	"gpanel/internal/runtimes"
@@ -46,6 +50,8 @@ func main() {
 		}
 		fmt.Println(pw)
 		return
+	case cfg.ImportGSManager != "":
+		os.Exit(importGSManager(cfg))
 	}
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		log.Fatal(err)
@@ -161,4 +167,45 @@ func main() {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_ = srv.Shutdown(ctx)
+}
+
+// importGSManager runs -import-gsmanager: the report goes to stderr, the
+// imported instances' final work dirs to stdout (for gpanel-ctl to chown).
+func importGSManager(cfg config.Config) int {
+	// The importer reports everything itself; keep library log lines (runtime
+	// scans) out of the report.
+	log.SetOutput(io.Discard)
+	move := map[string]bool{}
+	if cfg.MoveList != "" {
+		b, err := os.ReadFile(cfg.MoveList)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "读取 -move-list 失败: %v\n", err)
+			return 1
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				move[filepath.Clean(line)] = true
+			}
+		}
+	}
+	if !cfg.DryRun {
+		if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
+	res, err := gsmanager.Import(gsmanager.Options{
+		GSMDir: cfg.ImportGSManager, DataDir: cfg.DataDir, Move: move, DryRun: cfg.DryRun,
+		Report: os.Stderr, Dirs: os.Stdout,
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "迁移失败: %v\n", err)
+		return 1
+	}
+	verb := "已导入"
+	if cfg.DryRun {
+		verb = "可导入"
+	}
+	fmt.Fprintf(os.Stderr, "\n%s %d 个实例，跳过 %d 个\n", verb, res.Imported, res.Skipped)
+	return 0
 }

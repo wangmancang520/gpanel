@@ -157,6 +157,58 @@ OUT=$(GPANEL_TRUST_MIRROR=1 $CTL update -y --version v0.0.6 --mirror $M 2>&1); R
 check "明确信任后可用镜像校验"    '[ $RC = 0 ] && echo "$OUT" | grep -q 校验通过'
 kill $MIRP $HTTP; unset GPANEL_RELEASES
 
+# --- migrate from a native GSManager 3 install (running as the gsm3 service)
+GSM=/opt/gsmanager3
+mkdir -p "$GSM/data" /srv/gsm-games/pal/sub /root/gsm-games/mc
+install -m 755 "$ROOT/scripts/fake-server.sh" /srv/gsm-games/pal/sub/run.sh
+install -m 644 "$ROOT/scripts/fake-server.sh" /root/gsm-games/mc/start.sh # GSManager chmods on start
+echo save >/root/gsm-games/mc/level.dat
+JDK="$GSM/data/environment/Java/java17/jdk-17.0.9+9"
+mkdir -p "$JDK/bin"
+printf '#!/bin/sh\necho fake java\n' >"$JDK/bin/java" && chmod 755 "$JDK/bin/java"
+echo 'JAVA_VERSION="17.0.9"' >"$JDK/release"
+cat >"$GSM/data/instances.json" <<'EOF'
+[
+  {"id": "gsm-1", "name": "pal", "workingDirectory": "/srv/gsm-games/pal", "startCommand": "cd sub && ./run.sh",
+   "stopCommand": "ctrl+c", "autoStart": false, "terminalUser": "steam"},
+  {"id": "gsm-2", "name": "mc", "workingDirectory": "/root/gsm-games/mc", "startCommand": "echo Minecraft Java Edition",
+   "stopCommand": "stop", "autoStart": false, "instanceType": "minecraft-java", "javaVersion": "java17"},
+  {"id": "gsm-3", "name": "gone", "workingDirectory": "/srv/gsm-games/nope", "startCommand": "x", "stopCommand": "stop"}
+]
+EOF
+mkdir -p /usr/local/lib/systemd/system
+cat >/usr/local/lib/systemd/system/gsm3.service <<EOF
+[Service]
+WorkingDirectory=$GSM
+ExecStart=/bin/sleep infinity
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload && systemctl enable --now gsm3 >/dev/null 2>&1
+inst() { # inst NAME KEY: a field of the panel's instance named NAME
+  c $B/api/instances | python3 -c 'import json,sys; print(next((i.get(sys.argv[2], "") for i in json.load(sys.stdin) if i["name"] == sys.argv[1]), ""))' "$1" "$2"
+}
+
+OUT=$($CTL migrate-gsmanager -y 2>&1); echo "$OUT"
+check "迁移成功"                  'echo "$OUT" | grep -q 迁移完成 && echo "$OUT" | grep -q "已导入 2 个实例，跳过 1 个"'
+check "GSManager 已停止并取消自启" '! systemctl is-active --quiet gsm3 && ! systemctl is-enabled --quiet gsm3'
+check "迁移后可登录"              'wait_for 10 "login \"$NEWPW\""'
+check "实例已导入"                '[ -n "$(inst pal id)" ] && [ -n "$(inst mc id)" ] && [ -z "$(inst gone id)" ]'
+check "命令已转换"                '[ "$(inst pal command)" = "bash -c '\''cd sub && ./run.sh'\''" ] && [ "$(inst pal stopCommand)" = "^C" ]'
+MCDIR=$(inst mc dir)
+check "/root 下的目录已移入数据目录" '[ "$MCDIR" = "/var/lib/gpanel/instances/$(inst mc id)" ] && [ "$(cat "$MCDIR/level.dat")" = save ] && [ ! -e /root/gsm-games/mc ]'
+check "文件归 gpanel 所有"        '[ "$(stat -c %U /srv/gsm-games/pal/sub/run.sh)" = gpanel ] && [ "$(stat -c %U "$MCDIR/start.sh")" = gpanel ]'
+check "Java 17 已复制并选用"      '[ -n "$(inst mc runtime)" ] && [ "$(stat -c %U /var/lib/gpanel/runtimes/java/gsmanager-java17/bin/java)" = gpanel ]'
+PAL=$(inst pal id)
+check "迁移的实例可启动"          'c -X POST $B/api/instances/$PAL/start | grep -q running && c -X POST $B/api/instances/$(inst mc id)/start | grep -q running'
+c -X POST $B/api/instances/$PAL/stop >/dev/null
+check "Ctrl+C 停止命令生效"       'wait_for 5 "[ \"\$(inst pal state)\" = stopped ]"'
+c -X POST $B/api/instances/"$(inst mc id)"/stop >/dev/null
+OUT=$($CTL migrate-gsmanager -y 2>&1)
+check "重复迁移不会重复导入"      'echo "$OUT" | grep -q 已导入过 && [ "$(c $B/api/instances | python3 -c "import json,sys; print(len(json.load(sys.stdin)))")" = 3 ]'
+systemctl disable --now gsm3 >/dev/null 2>&1; rm -f /usr/local/lib/systemd/system/gsm3.service; systemctl daemon-reload
+rm -rf "$GSM" /srv/gsm-games /root/gsm-games
+
 # --- backup, stop/start
 check "备份"                      '$CTL backup -y --out $WORK/b.tgz >/dev/null 2>&1 && tar -tzf $WORK/b.tgz | grep -q "var/lib/gpanel/users.json"'
 check "备份文件仅 root 可读"      '[ "$(stat -c %a $WORK/b.tgz)" = 600 ]'

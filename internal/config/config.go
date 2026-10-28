@@ -24,6 +24,12 @@ type Config struct {
 	User          string // account for -reset-password
 	PrintUnit     bool   // -print-systemd-unit
 	PrintEnv      bool   // -print-env-template
+
+	// -import-gsmanager DIR [-dry-run] [-move-list FILE]: import instances
+	// from a native GSManager 3 install (run with the panel stopped).
+	ImportGSManager string
+	DryRun          bool
+	MoveList        string // file with one work dir per line to move into the data dir
 }
 
 // Load reads flags, falling back to GPANEL_* environment variables, then defaults.
@@ -39,6 +45,9 @@ func Load() Config {
 	flag.StringVar(&c.User, "user", "admin", "account for -reset-password")
 	flag.BoolVar(&c.PrintUnit, "print-systemd-unit", false, "print the systemd unit for this version and exit")
 	flag.BoolVar(&c.PrintEnv, "print-env-template", false, "print the environment file template and exit")
+	flag.StringVar(&c.ImportGSManager, "import-gsmanager", "", "import instances from the GSManager install in this directory and exit (stop the panel first)")
+	flag.BoolVar(&c.DryRun, "dry-run", false, "with -import-gsmanager: only report what would be imported")
+	flag.StringVar(&c.MoveList, "move-list", "", "with -import-gsmanager: file listing work dirs to move into the data dir")
 	flag.Parse()
 	if abs, err := filepath.Abs(c.DataDir); err == nil {
 		c.DataDir = abs

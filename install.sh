@@ -29,7 +29,7 @@ DEFAULT_PORT=24444
 TUNA='https://mirrors.tuna.tsinghua.edu.cn/Adoptium/{major}/{image}/{arch}/{os}/{file}'
 
 # Options (also settable as flags, see usage).
-YES=0 PURGE=0 FORCE=0 LOCAL="" WANT_VERSION="" OPT_PORT="" OPT_BIND="" OPT_USER="" MIRROR=""
+YES=0 PURGE=0 FORCE=0 LOCAL="" WANT_VERSION="" OPT_PORT="" OPT_BIND="" OPT_USER="" MIRROR="" OPT_GSM_DIR=""
 
 # ---------------------------------------------------------------- output
 
@@ -697,6 +697,107 @@ cmd_backup() {
   ok "备份完成：$out（$(du -h "$out" | awk '{print $1}')）"
 }
 
+# ---------------------------------------------------------------- GSManager migration
+
+GSM_SVC=gsm3
+
+# gsm_dir: the native GSManager 3 install, from --gsm-dir, its systemd unit
+# (WorkingDirectory=), or the installer's default.
+gsm_dir() {
+  local d="${OPT_GSM_DIR:-}" u
+  if [ -z "$d" ]; then
+    for u in /usr/local/lib/systemd/system/$GSM_SVC.service /etc/systemd/system/$GSM_SVC.service; do
+      [ -f "$u" ] && d="$(sed -n 's/^WorkingDirectory=//p' "$u" | head -1)" && [ -n "$d" ] && break
+    done
+  fi
+  echo "${d:-/opt/gsmanager3}"
+}
+
+gsm_unit_exists() { systemctl cat "$GSM_SVC" >/dev/null 2>&1; }
+gsm_running() { # by its unit, or any GSManager server process from this install
+  { gsm_unit_exists && systemctl is-active --quiet "$GSM_SVC"; } || pgrep -f "$1/server/index.js" >/dev/null 2>&1
+}
+
+cmd_migrate_gsm() {
+  need_root
+  installed || die "GPanel 还没有安装"
+  title "从 GSManager 迁移实例"
+  if have docker && docker ps -a --format '{{.Names}}' 2>/dev/null | grep -qx GSManager3; then
+    warn "检测到 Docker 版 GSManager（容器 GSManager3）：目前只支持迁移常规安装的 GSManager，Docker 版会跳过。"
+  fi
+  local dir
+  dir="$(gsm_dir)"
+  [ -n "${OPT_GSM_DIR:-}" ] || dir="$(ask "GSManager 安装目录" "$dir")"
+  [ -f "$dir/data/instances.json" ] || die "没有找到 $dir/data/instances.json，请确认这是常规安装的 GSManager 目录（可用 --gsm-dir 指定）"
+
+  local tmp
+  tmp="$(work_dir)"
+  step "读取 GSManager 实例（不做任何修改）"
+  "$BIN" -data "$DATA" -import-gsmanager "$dir" -dry-run >"$tmp/dirs" 2>"$tmp/plan" || { cat "$tmp/plan" >&2; die "读取失败"; }
+  sed 's/^/  /' "$tmp/plan"
+  if [ ! -s "$tmp/dirs" ]; then
+    ok "没有需要迁移的实例"
+    return 0
+  fi
+
+  # The gpanel user must reach each work dir. GSManager runs as root, so
+  # games often live under /root, which nobody else may enter; moving such
+  # dirs into $DATA/instances is a rename on the same disk.
+  local d unreachable=()
+  while read -r d; do
+    [ -n "$d" ] || continue
+    runuser -u gpanel -- test -x "$(dirname "$d")" 2>/dev/null || unreachable+=("$d")
+  done <"$tmp/dirs"
+  : >"$tmp/move"
+  if [ ${#unreachable[@]} -gt 0 ]; then
+    warn "以下目录位于 gpanel 用户无法进入的位置（如 /root）："
+    for d in "${unreachable[@]}"; do info "  $d"; done
+    if confirm "把它们移动到 $DATA/instances？（同一磁盘上是瞬间完成的改名；跨磁盘时会保留原位置）" y; then
+      printf '%s\n' "${unreachable[@]}" >"$tmp/move"
+    else
+      warn "不移动的话，这些实例需要你自行调整目录权限后才能启动"
+    fi
+  fi
+
+  warn "迁移前要先停止 GSManager，否则两个面板会同时运行同一个服务器（存档损坏、端口冲突）。"
+  info "建议先在 GSManager 中逐个停止正在运行的游戏服务器，让它们正常保存。"
+  confirm "开始迁移？" y || { info "已取消"; return 0; }
+
+  if gsm_running "$dir"; then
+    gsm_unit_exists || die "GSManager 正在运行但不是 systemd 服务（可能在 screen 中运行），请先手动停止后再迁移"
+    step "停止 GSManager"
+    systemctl stop "$GSM_SVC"
+  fi
+  if gsm_unit_exists && systemctl is-enabled --quiet "$GSM_SVC" 2>/dev/null; then
+    systemctl disable "$GSM_SVC" >/dev/null 2>&1 && ok "已关闭 GSManager 的开机自启"
+  fi
+
+  restart_notice
+  step "停止 GPanel 并导入"
+  systemctl stop "$SVC"
+  local args=(-data "$DATA" -import-gsmanager "$dir")
+  [ -s "$tmp/move" ] && args+=(-move-list "$tmp/move")
+  if ! "$BIN" "${args[@]}" >"$tmp/done" 2>"$tmp/report"; then
+    sed 's/^/  /' "$tmp/report" >&2
+    svc_start start || true
+    die "导入失败，GPanel 已恢复运行，GSManager 的数据没有改动"
+  fi
+  sed 's/^/  /' "$tmp/report"
+
+  step "调整文件所有者为 gpanel"
+  while read -r d; do
+    [ -n "$d" ] && [ -d "$d" ] && chown -R gpanel:gpanel "$d"
+  done <"$tmp/done"
+  chown -R gpanel:gpanel "$DATA" # new config and copied Java were written as root
+
+  step "启动 GPanel"
+  svc_start start
+  health || die "面板没有正常启动，请查看日志：journalctl -u gpanel -n 100"
+  ok "迁移完成，请在面板中检查各实例后再启动"
+  info "${D}GSManager 没有被卸载，它的配置也没有改动。确认一切正常后可以自行卸载；"
+  info "如需退回：在 GPanel 中停止这些实例，再运行 systemctl enable --now $GSM_SVC（被移动的目录需要移回原处）。$R"
+}
+
 # ---------------------------------------------------------------- menu
 
 LATEST=""
@@ -749,6 +850,8 @@ menu() {
     item 7 "修改配置（端口 / Java 下载源 / HTTPS 救急）"
     item 8 "备份数据"
     item 9 "卸载面板"
+    group "迁移"
+    item 10 "从 GSManager 迁移实例"
     item 0 "退出"
     case "$(ask "请选择" 0)" in
       1) run_action cmd_update ;;
@@ -771,6 +874,7 @@ menu() {
       7) run_action cmd_config ;;
       8) run_action cmd_backup ;;
       9) run_action cmd_uninstall && ! installed && { printf '\n'; exit 0; } ;;
+      10) run_action cmd_migrate_gsm ;;
       *) printf '\n'; exit 0 ;;
     esac
   done
@@ -805,6 +909,7 @@ usage() {
     reset-password     重置密码（--user 指定账号，默认 admin）
     config             修改端口、Java 下载源、HTTPS 救急开关
     backup             备份数据目录和配置
+    migrate-gsmanager  从常规安装的 GSManager 迁移游戏实例（--gsm-dir 指定目录）
     version            显示已安装版本和最新版本
 
   ${B}选项${R}
@@ -816,6 +921,7 @@ usage() {
     --mirror PREFIX        GitHub 下载加速前缀
     --user NAME            reset-password 的账号
     --purge                uninstall 时同时删除所有数据
+    --gsm-dir DIR          migrate-gsmanager 时 GSManager 的安装目录（默认自动检测）
     --force                已是最新版本时也重新安装
 
   ${B}环境变量${R}
@@ -839,6 +945,7 @@ main() {
       --mirror) MIRROR="${2:?}"; shift ;;
       --user) OPT_USER="${2:?}"; shift ;;
       --out) OPT_OUT="${2:?}"; shift ;;
+      --gsm-dir) OPT_GSM_DIR="${2:?--gsm-dir 需要目录}"; shift ;;
       -h | --help | help) usage; exit 0 ;;
       -*) die "未知选项：$1（运行 gpanel-ctl help 查看用法）" ;;
       *) args+=("$1") ;;
@@ -865,6 +972,7 @@ main() {
     reset-password) cmd_reset_password ;;
     config) cmd_config ;;
     backup) cmd_backup ;;
+    migrate-gsmanager) cmd_migrate_gsm ;;
     version)
       installed && echo "已安装：$(current_version)" || echo "未安装"
       echo "最新版本：$(latest_version || true)"

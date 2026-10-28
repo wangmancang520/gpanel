@@ -39,6 +39,9 @@ sudo gpanel-ctl
     7  修改配置（端口 / Java 下载源 / HTTPS 救急）
     8  备份数据
     9  卸载面板
+
+  迁移
+   10  从 GSManager 迁移实例
     0  退出
 ```
 
@@ -52,14 +55,38 @@ sudo gpanel-ctl
 | `sudo gpanel-ctl config` | 修改端口和监听地址、切换 Java 下载源、HTTPS 救急开关（证书问题导致打不开面板时临时只用 HTTP） |
 | `sudo gpanel-ctl backup` | 把数据目录和配置打包到 `/root/gpanel-backup-时间.tar.gz`（不含可重新下载的 Java） |
 | `sudo gpanel-ctl uninstall` | 卸载，默认保留数据（重新安装后可继续使用）；加 `--purge` 彻底删除 |
+| `sudo gpanel-ctl migrate-gsmanager` | 从常规安装的 GSManager 迁移游戏实例，见下文「从 GSManager 迁移」 |
 | `sudo gpanel-ctl install -y --port 8080 --bind 0.0.0.0` | 无人值守安装；`--version v0.2.0` 指定版本，`--local ./gpanel` 用本地文件 |
 
 说明：
 
 - 文件位置：程序 `/usr/local/bin/gpanel`，配置 `/etc/gpanel/gpanel.env`，数据 `/var/lib/gpanel`，日志 `journalctl -u gpanel`。面板和游戏服务器都以系统用户 `gpanel` 运行，只额外拥有绑定 1024 以下端口的权限（用于 HTTP 方式申请证书）。
 - **重启、更新面板会先优雅停止正在运行的游戏服务器**（发送停止命令，超时后强制结束），勾选了「自动启动」的实例会在面板启动后恢复；菜单在这类操作前会提示确认。
-- 访问 GitHub 慢时，可以在安装时或「修改配置」中设置 GitHub 下载加速前缀（也可用 `--mirror` / `GPANEL_MIRROR`）；无论从哪里下载，都会用发布时生成的 `SHA256SUMS` 校验。
+- 访问 GitHub 慢时，可以在安装时或「修改配置」中设置 GitHub 下载加速前缀（也可用 `--mirror` / `GPANEL_MIRROR`）；校验文件 `SHA256SUMS` 始终直接从 GitHub 获取，所以加速服务无法篡改程序；连不上 GitHub 时需要确认（或设置 `GPANEL_TRUST_MIRROR=1`）才会改用加速服务提供的校验文件。
 - 对公网开放时，登录后请在「安全」页修改密码并配置 HTTPS（支持用域名免费申请 Let's Encrypt 证书）。
+
+## 从 GSManager 迁移
+
+已经在用 [GSManager 3](https://github.com/GSManagerXZ/GameServerManager)（常规安装，非 Docker）时，安装 GPanel 后运行：
+
+```bash
+sudo gpanel-ctl migrate-gsmanager      # 或菜单中的「从 GSManager 迁移实例」
+```
+
+它会先列出每个实例将如何迁移（不做任何修改），确认后：停止 GSManager 并关闭它的开机自启 → 停止 GPanel → 导入实例 → 把游戏目录的所有者改为 `gpanel` → 启动 GPanel。游戏文件**原地使用，不复制**。
+
+| GSManager | GPanel |
+|---|---|
+| 名称、工作目录、自动启动 | 原样保留 |
+| 启动命令（在 bash 中执行） | 需要 shell 的命令（`cd … &&`、管道、`./脚本`等）包成 `bash -c '…'`；简单命令保持不变 |
+| 我的世界 Java 版 / 基岩版 | 按 GSManager 的规则识别 `start.sh`、`run.sh`、服务端 jar 或 `bedrock_server`，生成固定的启动命令 |
+| 停止方式 stop / exit / quit / ctrl+c | 同名停止命令；ctrl+c 对应 `^C` |
+| Java 版本（java8、java17…） | 优先用 GPanel 已有的同一主版本，否则复制 GSManager 已安装的 JDK |
+
+- 位于 gpanel 用户进不去的目录（如 `/root` 下）的实例，会询问是否移动到 `/var/lib/gpanel/instances`（同一磁盘上是瞬间完成的改名）。
+- 不迁移：GSManager 的账号、定时任务、RCON、备份、插件；以其他用户运行（终端用户）的设置；SteamCMD 一键更新（GPanel 暂不支持，游戏本身照常运行）。
+- **迁移前请先在 GSManager 中停止正在运行的服务器**，让它们正常保存。GSManager 不会被卸载、配置也不会改动；可以重复运行，已迁移的实例会跳过。
+- 安装目录不是默认的 `/opt/gsmanager3` 且没有 `gsm3` 服务时，用 `--gsm-dir` 指定。
 
 ## 从源码运行
 
@@ -118,6 +145,7 @@ internal/
   runtimes/          运行时检测（Java），通过 LaunchHook 注入启动参数
   system/            主机配置与负载采样（概览页），按进程组统计实例 CPU / 内存
   certs/             面板自身的 HTTPS 证书管理；同一端口同时服务 HTTP 和 HTTPS
+  gsmanager/         从常规安装的 GSManager 3 导入实例（gpanel -import-gsmanager）
 web/static/          前端（Vue 3 + xterm.js，无构建步骤）
 deploy/              systemd unit 与环境变量模板（内嵌进程序）
 install.sh           一键安装与维护工具（安装后为 gpanel-ctl）
