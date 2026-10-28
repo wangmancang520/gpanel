@@ -7,6 +7,7 @@ import (
 	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 
 	"gpanel/internal/httpx"
@@ -34,6 +35,9 @@ func (h *Handler) Register(mux httpx.Router) {
 	mux.HandleFunc("PUT "+p+"/content", h.with(h.write))
 	mux.HandleFunc("GET "+p+"/download", h.with(h.download))
 	mux.HandleFunc("POST "+p+"/upload", h.with(h.upload))
+	mux.HandleFunc("POST "+p+"/uploads", h.with(h.beginUpload))
+	mux.HandleFunc("PUT "+p+"/uploads/{upload}", h.with(h.uploadChunk))
+	mux.HandleFunc("DELETE "+p+"/uploads/{upload}", h.with(h.cancelUpload))
 	mux.HandleFunc("POST "+p+"/mkdir", h.with(h.mkdir))
 	mux.HandleFunc("POST "+p+"/rename", h.with(h.rename))
 	mux.HandleFunc("POST "+p+"/move", h.with(h.move))
@@ -127,7 +131,7 @@ func (h *Handler) download(fsys *FS, w http.ResponseWriter, r *http.Request) err
 }
 
 // upload streams multipart parts straight to disk, so file size isn't
-// bounded by memory. Large uploads may later move to resumable chunks.
+// bounded by memory. The web UI uses the resumable uploads below instead.
 func (h *Handler) upload(fsys *FS, w http.ResponseWriter, r *http.Request) error {
 	mr, err := r.MultipartReader()
 	if err != nil {
@@ -245,6 +249,71 @@ func (h *Handler) unzip(fsys *FS, w http.ResponseWriter, r *http.Request) error 
 		return err
 	}
 	if err := fsys.Unzip(req.Path, req.Dest); err != nil {
+		return err
+	}
+	httpx.OK(w)
+	return nil
+}
+
+// ---- resumable uploads (see upload.go)
+
+func (h *Handler) beginUpload(fsys *FS, w http.ResponseWriter, r *http.Request) error {
+	var u UploadSpec
+	if err := httpx.Decode(r, &u); err != nil {
+		return err
+	}
+	offset, err := fsys.BeginUpload(u)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"id": u.ID(), "offset": offset, "chunk": 8 << 20})
+	return nil
+}
+
+// specFrom reads the upload spec from the query and checks it matches the
+// ID in the path, so a chunk can't be steered into another upload.
+func specFrom(r *http.Request) (UploadSpec, error) {
+	q := r.URL.Query()
+	size, err1 := strconv.ParseInt(q.Get("size"), 10, 64)
+	mod, err2 := strconv.ParseInt(q.Get("modified"), 10, 64)
+	u := UploadSpec{Dir: q.Get("path"), Name: q.Get("name"), Size: size, Modified: mod}
+	if err1 != nil || err2 != nil || u.ID() != r.PathValue("upload") {
+		return u, errors.New("上传参数不匹配")
+	}
+	return u, nil
+}
+
+func (h *Handler) uploadChunk(fsys *FS, w http.ResponseWriter, r *http.Request) error {
+	u, err := specFrom(r)
+	if err != nil {
+		return err
+	}
+	offset, err := strconv.ParseInt(r.URL.Query().Get("offset"), 10, 64)
+	if err != nil {
+		return errors.New("缺少 offset")
+	}
+	cur, done, err := fsys.WriteChunk(u, offset, http.MaxBytesReader(w, r.Body, MaxChunk))
+	var oe *OffsetError
+	switch {
+	case errors.As(err, &oe):
+		httpx.JSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "offset": oe.Have})
+		return nil
+	case errors.Is(err, ErrUploadGone):
+		httpx.JSON(w, http.StatusGone, map[string]any{"error": err.Error()})
+		return nil
+	case err != nil:
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"offset": cur, "done": done})
+	return nil
+}
+
+func (h *Handler) cancelUpload(fsys *FS, w http.ResponseWriter, r *http.Request) error {
+	u, err := specFrom(r)
+	if err != nil {
+		return err
+	}
+	if err := fsys.CancelUpload(u); err != nil {
 		return err
 	}
 	httpx.OK(w)

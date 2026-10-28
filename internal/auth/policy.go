@@ -33,23 +33,31 @@ var rules = map[string]Rule{
 
 	"GET /api/system":    LoggedIn, // instance usage filtered to the caller's
 	"GET /api/instances": LoggedIn, // filtered to the caller's instances
+	"GET /api/status":    LoggedIn, // players online, filtered likewise
 
-	"GET /api/instances/{id}":           InstanceView,
-	"POST /api/instances/{id}/{action}": InstanceConsole, // start, stop, restart, kill, command
-	"GET /api/instances/{id}/terminal":  InstanceConsole,
+	"GET /api/instances/{id}":               InstanceView,
+	"GET /api/instances/{id}/status":        InstanceView,
+	"POST /api/instances/{id}/{action}":     InstanceConsole, // start, stop, restart, kill, command
+	"GET /api/instances/{id}/terminal":      InstanceConsole,
+	"GET /api/instances/{id}/logs":          InstanceConsole, // log files are console output
+	"GET /api/instances/{id}/logs/view":     InstanceConsole,
+	"GET /api/instances/{id}/logs/download": InstanceConsole,
 
-	"GET /api/instances/{id}/files":          InstanceFiles,
-	"GET /api/instances/{id}/files/content":  InstanceFiles,
-	"PUT /api/instances/{id}/files/content":  InstanceFiles,
-	"GET /api/instances/{id}/files/download": InstanceFiles,
-	"POST /api/instances/{id}/files/upload":  InstanceFiles,
-	"POST /api/instances/{id}/files/mkdir":   InstanceFiles,
-	"POST /api/instances/{id}/files/rename":  InstanceFiles,
-	"POST /api/instances/{id}/files/move":    InstanceFiles,
-	"POST /api/instances/{id}/files/copy":    InstanceFiles,
-	"POST /api/instances/{id}/files/delete":  InstanceFiles,
-	"POST /api/instances/{id}/files/zip":     InstanceFiles,
-	"POST /api/instances/{id}/files/unzip":   InstanceFiles,
+	"GET /api/instances/{id}/files":                     InstanceFiles,
+	"GET /api/instances/{id}/files/content":             InstanceFiles,
+	"PUT /api/instances/{id}/files/content":             InstanceFiles,
+	"GET /api/instances/{id}/files/download":            InstanceFiles,
+	"POST /api/instances/{id}/files/upload":             InstanceFiles,
+	"POST /api/instances/{id}/files/uploads":            InstanceFiles, // resumable upload: begin
+	"PUT /api/instances/{id}/files/uploads/{upload}":    InstanceFiles, // ...chunk
+	"DELETE /api/instances/{id}/files/uploads/{upload}": InstanceFiles, // ...cancel
+	"POST /api/instances/{id}/files/mkdir":              InstanceFiles,
+	"POST /api/instances/{id}/files/rename":             InstanceFiles,
+	"POST /api/instances/{id}/files/move":               InstanceFiles,
+	"POST /api/instances/{id}/files/copy":               InstanceFiles,
+	"POST /api/instances/{id}/files/delete":             InstanceFiles,
+	"POST /api/instances/{id}/files/zip":                InstanceFiles,
+	"POST /api/instances/{id}/files/unzip":              InstanceFiles,
 
 	// Creating, configuring and deleting instances, and runtimes: admins.
 	"POST /api/instances":            Admin,

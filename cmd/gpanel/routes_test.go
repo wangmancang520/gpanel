@@ -11,7 +11,9 @@ import (
 	"gpanel/internal/files"
 	"gpanel/internal/httpx"
 	"gpanel/internal/instance"
+	"gpanel/internal/mcstatus"
 	"gpanel/internal/runtimes"
+	"gpanel/internal/serverlogs"
 	"gpanel/internal/system"
 )
 
@@ -44,6 +46,8 @@ func TestEveryRouteHasAnAccessRule(t *testing.T) {
 		system.NewMonitor(data, "test", func() map[string]int { return nil }),
 		tlsMgr,
 		issuer,
+		serverlogs.NewHandler(instances.WorkDir),
+		mcstatus.NewHandler(mcstatus.Source{IDs: func() []string { return nil }, WorkDir: instances.WorkDir, Running: func(string) bool { return false }}),
 	}
 	router := auth.NewRouter(http.NewServeMux())
 	for _, m := range modules {

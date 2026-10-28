@@ -23,7 +23,9 @@ import (
 	"gpanel/internal/gsmanager"
 	"gpanel/internal/httpx"
 	"gpanel/internal/instance"
+	"gpanel/internal/mcstatus"
 	"gpanel/internal/runtimes"
+	"gpanel/internal/serverlogs"
 	"gpanel/internal/system"
 	"gpanel/web"
 )
@@ -127,6 +129,21 @@ func main() {
 		monitor,
 		tlsMgr,
 		issuer,
+		serverlogs.NewHandler(instances.WorkDir),
+		mcstatus.NewHandler(mcstatus.Source{
+			IDs: func() []string {
+				var ids []string
+				for _, s := range instances.List() {
+					ids = append(ids, s.ID)
+				}
+				return ids
+			},
+			WorkDir: instances.WorkDir,
+			Running: func(id string) bool {
+				inst, err := instances.Get(id)
+				return err == nil && inst.Running()
+			},
+		}),
 	}
 	mux := http.NewServeMux()
 	router := auth.NewRouter(mux) // every API route goes through the access policy

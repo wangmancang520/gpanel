@@ -105,6 +105,26 @@ check "移动到文件夹"          'c -X POST $F/move -d "{\"paths\":[\"/a - �
 check "不能移动到自身内部"    'c -X POST $F/move -d "{\"paths\":[\"/d\"],\"dest\":\"/d\"}" | grep -q error'
 check "下载文件"              '[ "$(c "$F/download?path=/out/a.txt")" = hello ]'
 check "路径越界被拒"          'c "$F/content?path=../../../etc/hosts" | grep -q error'
+
+# Resumable upload: "hello world" in two chunks, with a wrong offset in between.
+c -X POST $F/mkdir -d '{"path":"/up"}' >/dev/null
+UP=$(c -X POST $F/uploads -d '{"path":"/up","name":"r.txt","size":11,"modified":1}')
+UID_=$(echo "$UP" | jfield id)
+UQ="path=%2Fup&name=r.txt&size=11&modified=1"
+check "开始分片上传"          '[ -n "$UID_" ] && echo "$UP" | grep -q "\"offset\":0"'
+check "上传第一片"            'printf "hello " | c -X PUT --data-binary @- "$F/uploads/$UID_?$UQ&offset=0" | grep -q "\"done\":false,\"offset\":6"'
+check "偏移不符返回 409"      '[ "$(printf x | c -o /dev/null -w %{http_code} -X PUT --data-binary @- "$F/uploads/$UID_?$UQ&offset=3")" = 409 ]'
+check "断点续传取回偏移"      'c -X POST $F/uploads -d "{\"path\":\"/up\",\"name\":\"r.txt\",\"size\":11,\"modified\":1}" | grep -q "\"offset\":6"'
+check "上传完成并改名"        'printf world | c -X PUT --data-binary @- "$F/uploads/$UID_?$UQ&offset=6" | grep -q "\"done\":true" && [ "$(c "$F/content?path=/up/r.txt")" = "hello world" ]'
+check "列表不含临时分片"      '! c "$F?path=/up" | grep -q gpanel-upload'
+
+# Server logs (logs/ and crash-reports/).
+c -X POST $F/mkdir -d '{"path":"/logs"}' >/dev/null
+c -X PUT "$F/content?path=/logs/latest.log" --data-binary $'[main/INFO]: a\n[main/ERROR]: boom\n[main/INFO]: c\n' -H "Content-Type: text/plain" >/dev/null
+check "日志文件列表"          'c $B/api/instances/$ID/logs | grep -q "\"path\":\"logs/latest.log\""'
+check "日志按级别筛选"        'c "$B/api/instances/$ID/logs/view?file=logs/latest.log&level=error" | grep -q "\"total\":3,\"matched\":1"'
+check "日志外文件被拒"        '[ "$(c -o /dev/null -w %{http_code} "$B/api/instances/$ID/logs/view?file=up/r.txt")" = 400 ]'
+check "非 MC 实例无玩家状态"  'c $B/api/instances/$ID/status | grep -q "\"minecraft\":false" && c $B/api/status | grep -q "\"$ID\""'
 WD=$(status "$ID" | jfield dir)
 ln -s /etc "$WD/escape"
 check "符号链接逃逸被拒"      'c "$F/content?path=/escape/hosts" | grep -q error'

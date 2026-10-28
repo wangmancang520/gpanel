@@ -66,6 +66,9 @@ func (f *FS) List(dir string) ([]Entry, error) {
 	}
 	out := make([]Entry, 0, len(des))
 	for _, de := range des {
+		if strings.HasPrefix(de.Name(), partialPrefix) {
+			continue // an upload in progress
+		}
 		info, err := de.Info()
 		if err != nil {
 			continue
@@ -402,6 +405,9 @@ func (f *FS) Unzip(archive, destDir string) error {
 		return err
 	}
 	dest := clean(destDir)
+	if err := f.checkUnzip(zr, dest); err != nil {
+		return err
+	}
 	for _, zf := range zr.File {
 		target := filepath.Join(dest, clean(zf.Name))
 		mode := zf.Mode()
@@ -443,4 +449,45 @@ func (f *FS) extract(zf *zip.File, target string) error {
 		return err
 	}
 	return out.Close()
+}
+
+const (
+	maxUnzipEntries = 200_000
+	unzipReserve    = 1 << 30 // free space to leave on the disk after extracting
+)
+
+// freeSpace reports the bytes available on the filesystem holding dir; ok
+// is false where that can't be determined (then only the entry count is
+// checked). A variable so tests can pretend the disk is small.
+var freeSpace = diskFree
+
+// checkUnzip refuses archives that would fill the disk or hold an absurd
+// number of entries (zip bombs). The declared sizes are binding: the zip
+// reader fails an entry that inflates beyond what its header says.
+func (f *FS) checkUnzip(zr *zip.Reader, dest string) error {
+	if len(zr.File) > maxUnzipEntries {
+		return fmt.Errorf("压缩包内有 %d 个条目，超过上限 %d", len(zr.File), maxUnzipEntries)
+	}
+	var total uint64
+	for _, zf := range zr.File {
+		total += zf.UncompressedSize64
+	}
+	free, ok := freeSpace(filepath.Join(f.root.Name(), dest))
+	if ok && total+unzipReserve > free {
+		return fmt.Errorf("解压后需要 %s，磁盘剩余 %s（需至少保留 1 GB），已取消", humanSize(total), humanSize(free))
+	}
+	return nil
+}
+
+func humanSize(n uint64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	div, exp := uint64(unit), 0
+	for m := n / unit; m >= unit; m /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(n)/float64(div), "KMGTPE"[exp])
 }
